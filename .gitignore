@@ -1,0 +1,4 @@
+/venv
+atlas-credentials.env
+/app/static
+__pycache__/
