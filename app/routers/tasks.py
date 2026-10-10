@@ -4,7 +4,7 @@
 # - Create --> Post
 # - Read --> Get
 # - Update --> Put
-# - Delete --> Delete
+# - Delete --> Delete.
 
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException
