@@ -1,3 +1,5 @@
+from app.models.error import ErrorResponse
+
 # Task -> JSON
 def task_schema(task) -> dict:
     return {
