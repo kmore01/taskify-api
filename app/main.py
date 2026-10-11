@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.db.database import db
-from app.routers import auth_users, categories, tasks
+from app.routers import auth, categories, tasks
 
 
 @asynccontextmanager
@@ -22,7 +22,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(tasks.router)
 app.include_router(categories.router)
-app.include_router(auth_users.router)
+app.include_router(auth.router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Local url: http://127.0.0.1:8000

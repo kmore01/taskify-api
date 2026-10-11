@@ -11,9 +11,10 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db.database import db
-from app.db.schemas.task import ErrorResponse, task_schema, tasks_schema
+from app.deps import get_current_user
+from app.models.error import ErrorResponse
 from app.models.task import Task, TaskPage
-from app.routers.auth_users import get_current_user
+from app.models.task_schema import task_schema, tasks_schema
 
 router = APIRouter(
     prefix="/tasks", tags=["tasks"], responses={404: {"message": "Not found"}}

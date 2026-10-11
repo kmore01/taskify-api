@@ -1,4 +1,4 @@
 /venv
 .env
-atlas-credentials.env
 __pycache__/
+AGENTS.md

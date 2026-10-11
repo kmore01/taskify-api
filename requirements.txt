@@ -1,0 +1,13 @@
+Jinja2==3.1.6
+PyYAML==6.0.3
+Pygments==2.21.0
+charset-normalizer==3.5.2
+fastapi-cli==0.0.32
+googleapis-common-protos==1.75.5
+mdurl==0.1.2
+motor==3.7.1
+passlib==1.7.4
+pip-chill==1.0.5
+pydantic_core==2.50.0
+python-jose==3.5.0
+uvicorn==0.54.0
