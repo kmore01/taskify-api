@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Taskify: gestiona tus tareas ordenadas por vencimiento.">
+  <meta name="description" content="Taskify: tacha tus tareas y dale al cuño.">
   <title>Taskify</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Karla:wght@400;500;700;800&display=swap">
 
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -20,9 +20,9 @@
   <section id="view-auth" class="auth" aria-labelledby="auth-title">
     <div class="auth__grid">
       <div class="auth__intro">
-        <p class="brand">Taskify</p>
-        <h1 id="auth-title" class="auth__title">Tus tareas, ordenadas por lo que vence primero.</h1>
-        <p class="auth__lead">Crea una cuenta o entra para ver tus vencimientos en una sola línea de tiempo.</p>
+        <p class="brand brand--big">Taskify</p>
+        <h1 id="auth-title" class="auth__title">Tus tareas, ordenadas y selladas.</h1>
+        <p class="auth__lead">Entra o crea una cuenta. Cuando termines algo, cae el cuño.</p>
       </div>
 
       <div class="auth__panel">
@@ -77,21 +77,47 @@
     <header class="appbar">
       <span class="brand">Taskify</span>
       <div class="appbar__user">
+        <button id="btn-mute" class="btn btn--ghost btn--sm btn--icon" type="button"
+                aria-pressed="false">🔈</button>
         <span id="current-user" class="appbar__name"></span>
         <button id="btn-logout" class="btn btn--ghost btn--sm" type="button">Salir</button>
       </div>
     </header>
 
     <main id="main" class="content">
-<div class="content__head">
-      <h1 class="content__title">Vencimientos</h1>
-      <select id="sort-by" class="sort-select">
-        <option value="deadline" selected>Vencimiento</option>
-        <option value="title">Título</option>
-      </select>
-      <button id="btn-new" class="btn btn--primary" type="button"
-              aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
-    </div>
+      <!-- Today: progress and streak -->
+      <section class="today" aria-labelledby="today-title">
+        <div class="today__head">
+          <h2 id="today-title" class="today__title">Hoy</h2>
+          <div class="today__stats">
+            <span id="streak" class="streak" title="Días seguidos completando tareas">
+              🔥 <b>0</b>
+            </span>
+            <span id="day-count" class="today__count">0/0</span>
+          </div>
+        </div>
+        <div id="day-progress" class="bar" role="progressbar"
+             aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"
+             aria-label="Tareas de hoy completadas">
+          <span id="day-progress-fill" class="bar__fill"></span>
+        </div>
+        <p id="today-note" class="today__note"></p>
+      </section>
+
+      <div class="content__head">
+        <h1 class="content__title">Vencimientos</h1>
+        <div class="content__tools">
+          <label class="sort">
+            <span class="sort__label">Orden</span>
+            <select id="sort-by" class="sort-select">
+              <option value="deadline" selected>Vencimiento</option>
+              <option value="title">Título</option>
+            </select>
+          </label>
+          <button id="btn-new" class="btn btn--primary" type="button"
+                  aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
+        </div>
+      </div>
 
       <!-- Create / edit form -->
       <form id="task-form" class="form form--task" hidden novalidate>
@@ -129,8 +155,8 @@
       <ol id="task-list" class="timeline" aria-label="Tareas por vencimiento"></ol>
 
       <div id="empty-state" class="empty" hidden>
-        <p class="empty__title">Aún no hay tareas.</p>
-        <p class="empty__text">Crea la primera con «Nueva tarea».</p>
+        <p class="empty__title">Aquí no hay nada que tachar.</p>
+        <p class="empty__text">Crea tu primera tarea y dale al cuño.</p>
       </div>
     </main>
   </div>

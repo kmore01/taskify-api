@@ -2,6 +2,7 @@
 
 import { login, logout, register, me, isAuthenticated } from "./auth.js";
 import { listTasks, createTask, updateTask, deleteTask } from "./tasks.js";
+import * as fx from "./fx.js";
 
 // In-memory state for the main view.
 const state = {
@@ -11,6 +12,7 @@ const state = {
   dragStartId: null,
   sortBy: 'deadline',
   sortDir: 'asc',
+  done: {}, // taskId -> "YYYY-MM-DD" local completion date (client-side only)
 };
 
 const el = (id) => document.getElementById(id);
@@ -71,6 +73,122 @@ function sortTasks(tasks, sortBy = 'deadline', sortDir = 'asc') {
   return sorted.sort(compare);
 }
 
+// Completion, daily progress and streak (localStorage only; the backend has no
+// "completed" field, so this state lives in the browser per user).
+
+function dayKey(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function doneStorageKey() {
+  const user = el("current-user").textContent || "anon";
+  return `taskify_done:${user.toLowerCase()}`;
+}
+
+function loadDone() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(doneStorageKey()));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDone() {
+  try {
+    localStorage.setItem(doneStorageKey(), JSON.stringify(state.done));
+  } catch {
+    /* storage unavailable: completion still works for this session */
+  }
+}
+
+function deadlineIsToday(task) {
+  if (!task.deadline) return false;
+  const deadline = parseDate(task.deadline);
+  const now = new Date();
+  return (
+    deadline.getFullYear() === now.getFullYear() &&
+    deadline.getMonth() === now.getMonth() &&
+    deadline.getDate() === now.getDate()
+  );
+}
+
+// Consecutive days (ending today or yesterday) with at least one completion.
+function computeStreak() {
+  const days = new Set(Object.values(state.done));
+  const cursor = new Date();
+  if (!days.has(dayKey(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+    if (!days.has(dayKey(cursor))) return 0;
+  }
+  let streak = 0;
+  while (days.has(dayKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function renderToday() {
+  const dueToday = state.tasks.filter(deadlineIsToday);
+  const doneToday = dueToday.filter((task) => state.done[task.id]);
+  const total = dueToday.length;
+  const done = doneToday.length;
+  const percent = total ? Math.round((done / total) * 100) : 0;
+
+  el("day-count").textContent = `${done}/${total}`;
+  el("day-progress-fill").style.width = `${percent}%`;
+
+  const bar = el("day-progress");
+  bar.setAttribute("aria-valuemax", String(total));
+  bar.setAttribute("aria-valuenow", String(done));
+
+  const note = el("today-note");
+  if (total === 0) {
+    note.textContent = "Sin vencimientos para hoy. Respira.";
+  } else if (done === total) {
+    note.textContent = "Todo lo de hoy, tachado. Crack.";
+  } else {
+    const left = total - done;
+    note.textContent = left === 1 ? "Te queda 1 para hoy." : `Te quedan ${left} para hoy.`;
+  }
+
+  const streak = computeStreak();
+  el("streak").innerHTML = `🔥 <b>${streak}</b>`;
+  el("streak").setAttribute(
+    "title",
+    streak === 1 ? "1 día seguido completando tareas" : `${streak} días seguidos completando tareas`
+  );
+}
+
+// Toggle a task's local completion and react in place (no full re-render, so
+// the stamp animation is not wiped out).
+function setItemDone(item, isDone) {
+  if (!item) return;
+  item.classList.toggle("timeline__item--done", isDone);
+  const check = item.querySelector(".timeline__check");
+  if (check) {
+    check.setAttribute("aria-pressed", String(isDone));
+    check.setAttribute("aria-label", isDone ? "Marcar como no hecha" : "Marcar como hecha");
+    check.textContent = isDone ? "✓" : "";
+  }
+}
+
+function toggleComplete(id, item) {
+  const wasDone = Boolean(state.done[id]);
+  if (wasDone) {
+    delete state.done[id];
+    fx.sound.save(); // a soft tick, so un-completing never feels like an error
+  } else {
+    state.done[id] = dayKey(new Date());
+    fx.complete(item); // stamp + confetti + sound: the one big moment
+  }
+  saveDone();
+  setItemDone(item, !wasDone);
+  renderToday();
+}
+
 // UI helpers
 
 function setStatus(node, message = "", kind = "info") {
@@ -115,7 +233,18 @@ function renderItem(task) {
   item.className = `timeline__item timeline__item--${proximity}`;
   item.dataset.id = task.id;
   item.draggable = true;
+  const isDone = Boolean(state.done[task.id]);
+  if (isDone) item.classList.add("timeline__item--done");
   if (state.pendingDelete === task.id) item.classList.add("timeline__item--confirming");
+
+  const check = document.createElement("button");
+  check.type = "button";
+  check.className = "timeline__check";
+  check.dataset.action = "complete";
+  check.dataset.id = task.id;
+  check.setAttribute("aria-pressed", String(isDone));
+  check.setAttribute("aria-label", isDone ? "Marcar como no hecha" : "Marcar como hecha");
+  check.textContent = isDone ? "✓" : "";
 
   const node = document.createElement("span");
   node.className = "timeline__node";
@@ -140,7 +269,7 @@ function renderItem(task) {
   }
   meta.append(document.createTextNode(`Vence el ${formatDate(task.deadline)}`));
 
-  item.append(node, title, desc, meta, renderActions(task));
+  item.append(check, node, title, desc, meta, renderActions(task));
   return item;
 }
 
@@ -233,16 +362,22 @@ async function submitTask(event) {
   setStatus(status, wasEditing ? "Actualizando…" : "Guardando…");
 
   try {
+    let createdId = null;
     if (wasEditing) {
       const updated = await updateTask(payload);
       state.tasks = state.tasks.map((t) => (t.id === updated.id ? updated : t));
     } else {
-      const created = await createTask(payload);
+      const created = await createTask(payload); // plays the soft create pop
       state.tasks.push(created);
+      createdId = created.id;
     }
     closeForm();
     renderTasks();
-    setStatus(status, wasEditing ? "Tarea actualizada." : "Tarea guardada.", "ok");
+    renderToday();
+    if (createdId) {
+      fx.enter(document.querySelector(`.timeline__item[data-id="${createdId}"]`));
+    }
+    setStatus(status, wasEditing ? "Tarea actualizada." : "Guardada. Ya está en la lista.", "ok");
   } catch (error) {
     setStatus(status, error.message, "error");
   } finally {
@@ -254,15 +389,22 @@ async function submitTask(event) {
 
 async function removeTask(id) {
   const status = el("app-status");
+  const item = document.querySelector(`.timeline__item[data-id="${id}"]`);
   try {
-    await deleteTask(id);
+    await deleteTask(id); // plays the lower delete sound
     state.tasks = state.tasks.filter((t) => t.id !== id);
+    if (state.done[id]) {
+      delete state.done[id];
+      saveDone();
+    }
+    if (item) await fx.leave(item);
     setStatus(status, "Tarea eliminada.", "ok");
   } catch (error) {
     setStatus(status, error.message, "error");
   } finally {
     state.pendingDelete = null;
     renderTasks();
+    renderToday();
   }
 }
 
@@ -276,6 +418,9 @@ function onListClick(event) {
   switch (button.dataset.action) {
     case "edit":
       startEdit(id);
+      break;
+    case "complete":
+      toggleComplete(id, item);
       break;
     case "delete":
       state.pendingDelete = id;
@@ -297,8 +442,7 @@ function handleDragStart(event) {
   const item = event.target.closest(".timeline__item");
   if (!item) return;
   state.dragStartId = item.dataset.id;
-  item.style.opacity = "0.5";
-  item.style.transition = "opacity 0.15s ease";
+  item.classList.add("dragging");
 }
 
 function handleDragOver(event) {
@@ -310,6 +454,7 @@ function handleDragOver(event) {
   const draggable = document.querySelector(
     `.timeline__item[data-id="${state.dragStartId}"]`
   );
+  if (!draggable) return;
   if (afterElement == null) {
     el("task-list").appendChild(draggable);
   } else {
@@ -317,17 +462,18 @@ function handleDragOver(event) {
   }
 }
 
-function handleDrop(event) {
-  const items = el("task-list").querySelectorAll(".timeline__item");
-  items.forEach((item) => (item.style.opacity = ""));
+function handleDrop() {
+  el("task-list")
+    .querySelectorAll(".timeline__item")
+    .forEach((node) => node.classList.remove("dragging"));
   state.dragStartId = null;
 }
 
-function handleDragEnd(event) {
-  const items = el("task-list").querySelectorAll(".timeline__item");
-  items.forEach((item) => (item.style.opacity = ""));
+function handleDragEnd() {
+  el("task-list")
+    .querySelectorAll(".timeline__item")
+    .forEach((node) => node.classList.remove("dragging"));
   state.dragStartId = null;
-  item.classList.remove("dragging");
 }
 
 function getDragAfterElement(container, y) {
@@ -337,7 +483,7 @@ function getDragAfterElement(container, y) {
 
   return draggableElements.reduce((closest, child) => {
     const box = child.getBoundingClientRect();
-    const offset = event.clientY - box.top - box.height / 2;
+    const offset = y - box.top - box.height / 2;
     if (offset < 0 && offset > closest.offset) {
       return { offset, element: child };
     } else {
@@ -354,10 +500,12 @@ async function loadTasks() {
   try {
     state.tasks = await listTasks();
     renderTasks();
+    renderToday();
     setStatus(status, "");
   } catch (error) {
     state.tasks = [];
     renderTasks();
+    renderToday();
     setStatus(status, error.message, "error");
   }
 }
@@ -375,6 +523,7 @@ function showApp(user) {
   el("view-auth").hidden = true;
   el("view-app").hidden = false;
   el("current-user").textContent = (user && user.username) || "";
+  state.done = loadDone(); // per-user completion state from localStorage
   loadTasks();
 }
 
@@ -458,6 +607,7 @@ function onLogout() {
   logout();
   state.tasks = [];
   state.pendingDelete = null;
+  state.done = {};
   closeForm();
   showAuth();
 }
@@ -478,6 +628,14 @@ async function boot() {
   }
 }
 
+function syncMuteButton() {
+  const button = el("btn-mute");
+  const muted = fx.isMuted();
+  button.textContent = muted ? "🔇" : "🔈";
+  button.setAttribute("aria-pressed", String(muted));
+  button.setAttribute("aria-label", muted ? "Activar sonido" : "Silenciar");
+}
+
 function init() {
   el("tab-login").addEventListener("click", () => selectTab("login"));
   el("tab-register").addEventListener("click", () => selectTab("register"));
@@ -485,6 +643,12 @@ function init() {
   el("form-login").addEventListener("submit", onLogin);
   el("form-register").addEventListener("submit", onRegister);
   el("btn-logout").addEventListener("click", onLogout);
+
+  syncMuteButton();
+  el("btn-mute").addEventListener("click", () => {
+    fx.toggleMute();
+    syncMuteButton();
+  });
 
   el("btn-new").addEventListener("click", () => {
     if (el("task-form").hidden) openForm();

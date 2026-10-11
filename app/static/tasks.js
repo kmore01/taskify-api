@@ -1,6 +1,7 @@
 // tasks.js - CRUD against /tasks.
 
 import { apiFetch } from "./api.js";
+import { sound } from "./fx.js";
 
 // Accept a plain array or the paginated { items } shape.
 function normalizeList(data) {
@@ -15,15 +16,21 @@ export async function listTasks() {
 
 // Create: the model requires id (null ok), title, description, date and deadline.
 export async function createTask(task) {
-  return apiFetch("/tasks/", { method: "POST", body: task });
+  const created = await apiFetch("/tasks/", { method: "POST", body: task });
+  sound.create();
+  return created;
 }
 
 // Update replaces the whole task; the body must include id.
 export async function updateTask(task) {
-  return apiFetch("/tasks/", { method: "PUT", body: task });
+  const updated = await apiFetch("/tasks/", { method: "PUT", body: task });
+  sound.save();
+  return updated;
 }
 
 // Delete by id. Backend replies 204 with no body.
 export async function deleteTask(id) {
-  return apiFetch(`/tasks/${id}`, { method: "DELETE" });
+  const result = await apiFetch(`/tasks/${id}`, { method: "DELETE" });
+  sound.remove();
+  return result;
 }
