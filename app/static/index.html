@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Taskify: gestiona tus tareas ordenadas por vencimiento.">
+  <title>Taskify</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
+
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+
+  <!-- ============================= Autenticación ============================= -->
+  <section id="view-auth" class="auth" aria-labelledby="auth-title">
+    <div class="auth__grid">
+      <div class="auth__intro">
+        <p class="brand">Taskify</p>
+        <h1 id="auth-title" class="auth__title">Tus tareas, ordenadas por lo que vence primero.</h1>
+        <p class="auth__lead">Crea una cuenta o entra para ver tus vencimientos en una sola línea de tiempo.</p>
+      </div>
+
+      <div class="auth__panel">
+        <div class="tabs" role="tablist" aria-label="Acceso">
+          <button id="tab-login" class="tab" type="button" role="tab"
+                  aria-selected="true" aria-controls="form-login">Entrar</button>
+          <button id="tab-register" class="tab" type="button" role="tab"
+                  aria-selected="false" aria-controls="form-register" tabindex="-1">Crear cuenta</button>
+        </div>
+
+        <!-- Inicio de sesión -->
+        <form id="form-login" class="form" role="tabpanel" aria-labelledby="tab-login" novalidate>
+          <label class="field">
+            <span class="field__label">Usuario</span>
+            <input name="username" autocomplete="username" required>
+          </label>
+          <label class="field">
+            <span class="field__label">Contraseña</span>
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <div class="form__actions">
+            <button class="btn btn--primary" type="submit">Entrar</button>
+          </div>
+        </form>
+
+        <!-- Registro -->
+        <form id="form-register" class="form" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>
+          <label class="field">
+            <span class="field__label">Usuario</span>
+            <input name="username" autocomplete="username" required minlength="3">
+          </label>
+          <label class="field">
+            <span class="field__label">Correo</span>
+            <input type="email" name="email" autocomplete="email" required>
+          </label>
+          <label class="field">
+            <span class="field__label">Contraseña</span>
+            <input type="password" name="password" autocomplete="new-password" required minlength="8">
+          </label>
+          <div class="form__actions">
+            <button class="btn btn--primary" type="submit">Crear cuenta</button>
+          </div>
+        </form>
+
+        <p id="auth-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= Aplicación ============================= -->
+  <div id="view-app" hidden>
+    <header class="appbar">
+      <span class="brand">Taskify</span>
+      <div class="appbar__user">
+        <span id="current-user" class="appbar__name"></span>
+        <button id="btn-logout" class="btn btn--ghost btn--sm" type="button">Salir</button>
+      </div>
+    </header>
+
+    <main id="main" class="content">
+      <div class="content__head">
+        <h1 class="content__title">Vencimientos</h1>
+        <button id="btn-new" class="btn btn--primary" type="button"
+                aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
+      </div>
+
+      <!-- Formulario de creación y edición -->
+      <form id="task-form" class="form form--task" hidden novalidate>
+        <input type="hidden" name="id">
+
+        <label class="field">
+          <span class="field__label">Título</span>
+          <input name="title" required maxlength="120">
+        </label>
+
+        <label class="field field--wide">
+          <span class="field__label">Descripción</span>
+          <textarea name="description" rows="3" required></textarea>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Fecha</span>
+          <input type="datetime-local" name="date" required>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Vencimiento</span>
+          <input type="datetime-local" name="deadline" required>
+        </label>
+
+        <div class="form__actions">
+          <button id="task-submit" class="btn btn--primary" type="submit">Guardar</button>
+          <button id="task-cancel" class="btn btn--ghost" type="button">Cancelar</button>
+        </div>
+      </form>
+
+      <p id="app-status" class="status" role="status" aria-live="polite"></p>
+
+      <!-- Línea de tiempo de vencimientos -->
+      <ol id="task-list" class="timeline" aria-label="Tareas por vencimiento"></ol>
+
+      <div id="empty-state" class="empty" hidden>
+        <p class="empty__title">Aún no hay tareas.</p>
+        <p class="empty__text">Crea la primera con «Nueva tarea».</p>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

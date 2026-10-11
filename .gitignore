@@ -1,5 +1,4 @@
 /venv
 .env
 atlas-credentials.env
-/app/static
 __pycache__/
