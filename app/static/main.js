@@ -8,6 +8,7 @@ const state = {
   tasks: [],
   editingId: null,
   pendingDelete: null,
+  dragStartId: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -83,14 +84,10 @@ function renderTasks() {
   const empty = el("empty-state");
   list.innerHTML = "";
 
-  const sorted = [...state.tasks].sort(
-    (a, b) => parseDate(a.deadline) - parseDate(b.deadline)
-  );
+  empty.hidden = state.tasks.length > 0;
+  list.hidden = state.tasks.length === 0;
 
-  empty.hidden = sorted.length > 0;
-  list.hidden = sorted.length === 0;
-
-  for (const task of sorted) {
+  for (const task of state.tasks) {
     list.appendChild(renderItem(task));
   }
 }
@@ -101,6 +98,7 @@ function renderItem(task) {
   const item = document.createElement("li");
   item.className = `timeline__item timeline__item--${proximity}`;
   item.dataset.id = task.id;
+  item.draggable = true;
   if (state.pendingDelete === task.id) item.classList.add("timeline__item--confirming");
 
   const node = document.createElement("span");
@@ -277,6 +275,61 @@ function onListClick(event) {
   }
 }
 
+// Drag-and-drop reordering
+
+function handleDragStart(event) {
+  const item = event.target.closest(".timeline__item");
+  if (!item) return;
+  state.dragStartId = item.dataset.id;
+  item.style.opacity = "0.5";
+  item.style.transition = "opacity 0.15s ease";
+}
+
+function handleDragOver(event) {
+  event.preventDefault();
+  const afterElement = getDragAfterElement(
+    el("task-list"),
+    event.clientY
+  );
+  const draggable = document.querySelector(
+    `.timeline__item[data-id="${state.dragStartId}"]`
+  );
+  if (afterElement == null) {
+    el("task-list").appendChild(draggable);
+  } else {
+    el("task-list").insertBefore(draggable, afterElement);
+  }
+}
+
+function handleDrop(event) {
+  const items = el("task-list").querySelectorAll(".timeline__item");
+  items.forEach((item) => (item.style.opacity = ""));
+  state.dragStartId = null;
+}
+
+function handleDragEnd(event) {
+  const items = el("task-list").querySelectorAll(".timeline__item");
+  items.forEach((item) => (item.style.opacity = ""));
+  state.dragStartId = null;
+  item.classList.remove("dragging");
+}
+
+function getDragAfterElement(container, y) {
+  const draggableElements = [
+    ...container.querySelectorAll(".timeline__item:not(.dragging)"),
+  ];
+
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = event.clientY - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      return { offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
 // Data loading
 
 async function loadTasks() {
@@ -424,6 +477,12 @@ function init() {
   el("task-cancel").addEventListener("click", closeForm);
   el("task-form").addEventListener("submit", submitTask);
   el("task-list").addEventListener("click", onListClick);
+
+  // Drag-and-drop reordering
+  el("task-list").addEventListener("dragstart", handleDragStart);
+  el("task-list").addEventListener("dragover", handleDragOver);
+  el("task-list").addEventListener("drop", handleDrop);
+  el("task-list").addEventListener("dragend", handleDragEnd);
 
   window.addEventListener("taskify:unauthorized", () => {
     showAuth("Tu sesión expiró. Vuelve a entrar.");

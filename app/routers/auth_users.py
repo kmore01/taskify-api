@@ -3,6 +3,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -12,6 +13,8 @@ from pymongo.errors import DuplicateKeyError
 from app.db.database import db
 from app.db.schemas.task import ErrorResponse
 from app.models.user import TokenResponse, UserCreate, UserPublic
+
+load_dotenv()
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30

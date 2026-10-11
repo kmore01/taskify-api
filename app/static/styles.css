@@ -337,6 +337,8 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .timeline__item--soon .badge { color: var(--soon); }
 
+.timeline__item.dragging { opacity: 0.5; transition: opacity 0.15s ease; }
+
 .timeline__actions {
   grid-column: 2;
   grid-row: 1;
