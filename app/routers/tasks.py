@@ -36,9 +36,11 @@ async def create_task(task: Task):
 
 
 @router.get("/", response_model=list[Task])
-async def list_tasks():
-    # Returns at most 100 tasks
-    return tasks_schema(await db.tasks.find().limit(100).to_list(length=100))
+async def list_tasks(skip: int = 0, limit: int = 100):
+    # Paginated tasks listing
+    tasks = await db.tasks.find().skip(skip).limit(limit).to_list(length=None)
+    total = await db.tasks.count_documents({})
+    return {"items": tasks_schema(tasks), "total": total, "page": skip // limit + 1, "page_size": limit}
 
 
 @router.get("/{id}", response_model=Task)  # Detail by path parameter
