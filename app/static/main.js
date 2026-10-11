@@ -9,6 +9,8 @@ const state = {
   editingId: null,
   pendingDelete: null,
   dragStartId: null,
+  sortBy: 'deadline',
+  sortDir: 'asc',
 };
 
 const el = (id) => document.getElementById(id);
@@ -56,6 +58,19 @@ function deadlineState(iso) {
 
 const DEADLINE_LABEL = { overdue: "Vencida", soon: "Próxima", later: "" };
 
+// Ordenar tareas por criterio y dirección.
+function sortTasks(tasks, sortBy = 'deadline', sortDir = 'asc') {
+  const sorted = [...tasks];
+  const compare = (a, b) => {
+    const valA = sortBy === 'deadline' ? parseDate(a.deadline) : a.title;
+    const valB = sortBy === 'deadline' ? parseDate(b.deadline) : b.title;
+    if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+    if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  };
+  return sorted.sort(compare);
+}
+
 // UI helpers
 
 function setStatus(node, message = "", kind = "info") {
@@ -87,7 +102,8 @@ function renderTasks() {
   empty.hidden = state.tasks.length > 0;
   list.hidden = state.tasks.length === 0;
 
-  for (const task of state.tasks) {
+  const sorted = sortTasks(state.tasks, state.sortBy, state.sortDir);
+  for (const task of sorted) {
     list.appendChild(renderItem(task));
   }
 }
@@ -483,6 +499,18 @@ function init() {
   el("task-list").addEventListener("dragover", handleDragOver);
   el("task-list").addEventListener("drop", handleDrop);
   el("task-list").addEventListener("dragend", handleDragEnd);
+
+  const sortSelect = el("sort-by");
+  sortSelect.addEventListener("change", () => {
+    // Si cambia el criterio, reiniciar a asc; si es el mismo, alternar
+    if (state.sortBy === sortSelect.value) {
+      state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.sortBy = sortSelect.value;
+      state.sortDir = 'asc';
+    }
+    renderTasks();
+  });
 
   window.addEventListener("taskify:unauthorized", () => {
     showAuth("Tu sesión expiró. Vuelve a entrar.");

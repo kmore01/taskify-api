@@ -83,11 +83,15 @@
     </header>
 
     <main id="main" class="content">
-      <div class="content__head">
-        <h1 class="content__title">Vencimientos</h1>
-        <button id="btn-new" class="btn btn--primary" type="button"
-                aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
-      </div>
+<div class="content__head">
+      <h1 class="content__title">Vencimientos</h1>
+      <select id="sort-by" class="sort-select">
+        <option value="deadline" selected>Vencimiento</option>
+        <option value="title">Título</option>
+      </select>
+      <button id="btn-new" class="btn btn--primary" type="button"
+              aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
+    </div>
 
       <!-- Create / edit form -->
       <form id="task-form" class="form form--task" hidden novalidate>
