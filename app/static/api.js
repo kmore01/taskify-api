@@ -1,12 +1,10 @@
-// api.js - Cliente HTTP único para la API de Taskify.
-//
-// Todas las peticiones pasan por apiFetch(): añade el token Bearer,
-// serializa el cuerpo, interpreta los errores del backend y, ante un 401,
-// limpia la sesión y avisa a la aplicación para volver al login.
+// api.js - Single HTTP client for the Taskify API.
+// Adds the Bearer token, serializes the body, parses backend errors and,
+// on a 401, clears the session and tells the app to return to login.
 
 const TOKEN_KEY = "taskify_token";
 
-// Error con mensaje legible y código HTTP asociado.
+// Error with a readable message and HTTP status.
 export class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -15,7 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-// ------------------------------ Sesión ------------------------------
+// Session
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -36,10 +34,8 @@ export function isAuthenticated() {
   return Boolean(getToken());
 }
 
-// ------------------------------ Errores ------------------------------
-// El campo `detail` del backend puede ser:
-//   - { error: "mensaje" }        (HTTPException de la app)
-//   - [{ msg, loc, type }, ...]   (errores de validación de Pydantic)
+// Errors
+// Backend `detail` is either { error } or a Pydantic list of { msg, loc }.
 export function describeError(detail) {
   if (!detail) return "Ocurrió un error inesperado.";
 
@@ -63,15 +59,15 @@ export function describeError(detail) {
   return "Ocurrió un error inesperado.";
 }
 
-// ------------------------------ Petición ------------------------------
-// `body` puede ser un objeto (se serializa a JSON), URLSearchParams o FormData.
+// Request
+// `body` can be an object (serialized to JSON), URLSearchParams or FormData.
 export async function apiFetch(path, options = {}) {
   const { method = "GET", body, headers = {}, ...rest } = options;
   const finalHeaders = { Accept: "application/json", ...headers };
   let finalBody = body;
 
   if (body instanceof URLSearchParams || body instanceof FormData) {
-    // El navegador fija el Content-Type correcto.
+    // Let the browser set the correct Content-Type.
     finalBody = body;
   } else if (body !== undefined) {
     finalHeaders["Content-Type"] = "application/json";
@@ -88,7 +84,7 @@ export async function apiFetch(path, options = {}) {
     throw new ApiError("No se pudo conectar con el servidor.", 0);
   }
 
-  // Token inválido o expirado: se cierra la sesión en el cliente.
+  // Invalid or expired token: clear the client session.
   if (response.status === 401) {
     clearSession();
     window.dispatchEvent(new CustomEvent("taskify:unauthorized"));

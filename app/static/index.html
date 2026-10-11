@@ -16,7 +16,7 @@
 <body>
   <a class="skip-link" href="#main">Saltar al contenido</a>
 
-  <!-- ============================= Autenticación ============================= -->
+  <!-- Auth -->
   <section id="view-auth" class="auth" aria-labelledby="auth-title">
     <div class="auth__grid">
       <div class="auth__intro">
@@ -33,7 +33,7 @@
                   aria-selected="false" aria-controls="form-register" tabindex="-1">Crear cuenta</button>
         </div>
 
-        <!-- Inicio de sesión -->
+        <!-- Login -->
         <form id="form-login" class="form" role="tabpanel" aria-labelledby="tab-login" novalidate>
           <label class="field">
             <span class="field__label">Usuario</span>
@@ -48,7 +48,7 @@
           </div>
         </form>
 
-        <!-- Registro -->
+        <!-- Register -->
         <form id="form-register" class="form" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>
           <label class="field">
             <span class="field__label">Usuario</span>
@@ -72,7 +72,7 @@
     </div>
   </section>
 
-  <!-- ============================= Aplicación ============================= -->
+  <!-- App -->
   <div id="view-app" hidden>
     <header class="appbar">
       <span class="brand">Taskify</span>
@@ -89,7 +89,7 @@
                 aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
       </div>
 
-      <!-- Formulario de creación y edición -->
+      <!-- Create / edit form -->
       <form id="task-form" class="form form--task" hidden novalidate>
         <input type="hidden" name="id">
 
@@ -121,7 +121,7 @@
 
       <p id="app-status" class="status" role="status" aria-live="polite"></p>
 
-      <!-- Línea de tiempo de vencimientos -->
+      <!-- Deadlines timeline -->
       <ol id="task-list" class="timeline" aria-label="Tareas por vencimiento"></ol>
 
       <div id="empty-state" class="empty" hidden>

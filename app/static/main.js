@@ -1,9 +1,9 @@
-// main.js - Arranque de la aplicación y lógica de la interfaz.
+// main.js - App bootstrap and UI logic.
 
 import { login, logout, register, me, isAuthenticated } from "./auth.js";
 import { listTasks, createTask, updateTask, deleteTask } from "./tasks.js";
 
-// Estado en memoria de la vista principal.
+// In-memory state for the main view.
 const state = {
   tasks: [],
   editingId: null,
@@ -13,11 +13,9 @@ const state = {
 const el = (id) => document.getElementById(id);
 const field = (form, name) => form.elements.namedItem(name);
 
-// ============================ Fechas ============================
+// Dates
 
-// El backend guarda las fechas en UTC pero las devuelve sin zona horaria
-// (p. ej. "2026-10-12T10:00:00"). Si el texto no trae zona, se interpreta
-// como UTC para no desplazar las horas en el navegador.
+// The backend returns UTC datetimes without a timezone suffix; treat them as UTC.
 function parseDate(value) {
   if (typeof value === "string" && !/(Z|[+-]\d{2}:?\d{2})$/.test(value)) {
     return new Date(`${value}Z`);
@@ -25,7 +23,7 @@ function parseDate(value) {
   return new Date(value);
 }
 
-// Convierte un ISO del backend al formato de <input type="datetime-local">.
+// ISO from the backend -> value for <input type="datetime-local">.
 function toLocalInput(iso) {
   const date = parseDate(iso);
   const pad = (n) => String(n).padStart(2, "0");
@@ -35,19 +33,18 @@ function toLocalInput(iso) {
   );
 }
 
-// Convierte el valor de un <input datetime-local> a ISO en UTC.
+// Value from <input type="datetime-local"> -> UTC ISO.
 function fromLocalInput(value) {
   return new Date(value).toISOString();
 }
 
-// Formatea un ISO para mostrarlo en pantalla.
 function formatDate(iso) {
   const date = parseDate(iso);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" });
 }
 
-// Clasifica el vencimiento según su cercanía.
+// Deadline proximity: "overdue", "soon" (<= 48 h) or "later".
 function deadlineState(iso) {
   const diff = parseDate(iso).getTime() - Date.now();
   if (Number.isNaN(diff)) return "later";
@@ -58,7 +55,7 @@ function deadlineState(iso) {
 
 const DEADLINE_LABEL = { overdue: "Vencida", soon: "Próxima", later: "" };
 
-// ============================ Utilidades de UI ============================
+// UI helpers
 
 function setStatus(node, message = "", kind = "info") {
   node.textContent = message;
@@ -79,7 +76,7 @@ function makeButton(text, className, action, id) {
   return button;
 }
 
-// ============================ Render de tareas ============================
+// Rendering
 
 function renderTasks() {
   const list = el("task-list");
@@ -156,7 +153,7 @@ function renderActions(task) {
   return wrap;
 }
 
-// ============================ Formulario de tarea ============================
+// Task form
 
 function openForm(task = null) {
   const form = el("task-form");
@@ -239,7 +236,7 @@ async function submitTask(event) {
   }
 }
 
-// ============================ Acciones sobre la lista ============================
+// List actions
 
 async function removeTask(id) {
   const status = el("app-status");
@@ -280,7 +277,7 @@ function onListClick(event) {
   }
 }
 
-// ============================ Carga de datos ============================
+// Data loading
 
 async function loadTasks() {
   const status = el("app-status");
@@ -296,7 +293,7 @@ async function loadTasks() {
   }
 }
 
-// ============================ Vistas ============================
+// Views
 
 function showAuth(message = "") {
   el("view-app").hidden = true;
@@ -327,7 +324,7 @@ function selectTab(name) {
   setStatus(el("auth-status"), "");
 }
 
-// Navegación entre pestañas con las flechas (patrón ARIA).
+// Arrow-key navigation between ARIA tabs.
 function onTabsKeydown(event) {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
   event.preventDefault();
@@ -336,7 +333,7 @@ function onTabsKeydown(event) {
   el(next === "login" ? "tab-login" : "tab-register").focus();
 }
 
-// ============================ Autenticación ============================
+// Auth
 
 async function onLogin(event) {
   event.preventDefault();
@@ -377,7 +374,7 @@ async function onRegister(event) {
   setStatus(status, "Creando cuenta…");
   try {
     await register({ username, email, password });
-    await login(username, password); // inicio de sesión automático
+    await login(username, password); // Auto sign-in after registration.
     const user = await me();
     form.reset();
     showApp(user);
@@ -396,7 +393,7 @@ function onLogout() {
   showAuth();
 }
 
-// ============================ Arranque ============================
+// Boot
 
 async function boot() {
   if (!isAuthenticated()) {
@@ -407,7 +404,7 @@ async function boot() {
     const user = await me();
     showApp(user);
   } catch {
-    // Si el 401 limpió la sesión, el evento ya mostró el login.
+    // A 401 already cleared the session and showed the login view.
     if (isAuthenticated()) showAuth("No se pudo verificar la sesión.");
   }
 }

@@ -9,3 +9,10 @@ class Task(BaseModel):
     description: str
     date: datetime
     deadline: datetime
+
+
+class TaskPage(BaseModel):
+    items: list[Task]
+    total: int
+    page: int
+    page_size: int
