@@ -116,7 +116,7 @@ function resizeCanvas() {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 }
 
-const CONFETTI_COLORS = ["#5b34b0", "#16855a", "#f2d64b", "#c4303f", "#ffffff"];
+const CONFETTI_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#f43f5e", "#ffffff"];
 
 export function confetti(x, y, colors = CONFETTI_COLORS) {
   if (prefersReducedMotion()) return;
@@ -202,8 +202,9 @@ export function leave(node) {
 export function complete(node) {
   sound.complete();
   if (!node || prefersReducedMotion()) return;
-  const rect = node.getBoundingClientRect();
-  confetti(rect.left + 26, rect.top + rect.height / 2);
+  const origin = node.querySelector(".timeline__check") || node;
+  const rect = origin.getBoundingClientRect();
+  confetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
 
   const stamp = document.createElement("span");
   stamp.className = "stamp";

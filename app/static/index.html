@@ -4,12 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f6f8">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1218">
   <meta name="description" content="Taskify: tacha tus tareas y dale al cuño.">
   <title>Taskify</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Karla:wght@400;500;700;800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -20,7 +22,15 @@
   <section id="view-auth" class="auth" aria-labelledby="auth-title">
     <div class="auth__grid">
       <div class="auth__intro">
-        <p class="brand brand--big">Taskify</p>
+        <p class="brand brand--big">
+          <span class="brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                 stroke-linecap="round" stroke-linejoin="round" focusable="false">
+              <path d="m5 12 4.5 4.5L19 7"/>
+            </svg>
+          </span>
+          Taskify
+        </p>
         <h1 id="auth-title" class="auth__title">Tus tareas, ordenadas y selladas.</h1>
         <p class="auth__lead">Entra o crea una cuenta. Cuando termines algo, cae el cuño.</p>
       </div>
@@ -75,12 +85,37 @@
   <!-- App -->
   <div id="view-app" hidden>
     <header class="appbar">
-      <span class="brand">Taskify</span>
-      <div class="appbar__user">
-        <button id="btn-mute" class="btn btn--ghost btn--sm btn--icon" type="button"
-                aria-pressed="false">🔈</button>
-        <span id="current-user" class="appbar__name"></span>
-        <button id="btn-logout" class="btn btn--ghost btn--sm" type="button">Salir</button>
+      <div class="appbar__inner">
+        <span class="brand">
+          <span class="brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                 stroke-linecap="round" stroke-linejoin="round" focusable="false">
+              <path d="m5 12 4.5 4.5L19 7"/>
+            </svg>
+          </span>
+          Taskify
+        </span>
+        <div class="appbar__user">
+          <button id="btn-mute" class="btn btn--ghost btn--sm btn--icon" type="button"
+                  aria-pressed="false" aria-label="Silenciar">
+            <svg class="icon icon--sound" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+              <path d="M11 5 6 9H3v6h3l5 4V5Z"/>
+              <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+              <path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+            </svg>
+            <svg class="icon icon--muted" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+              <path d="M11 5 6 9H3v6h3l5 4V5Z"/>
+              <path d="m16 9 5 6"/>
+              <path d="m21 9-5 6"/>
+            </svg>
+          </button>
+          <span id="current-user" class="appbar__name"></span>
+          <button id="btn-logout" class="btn btn--ghost btn--sm" type="button">Salir</button>
+        </div>
       </div>
     </header>
 
@@ -91,7 +126,12 @@
           <h2 id="today-title" class="today__title">Hoy</h2>
           <div class="today__stats">
             <span id="streak" class="streak" title="Días seguidos completando tareas">
-              🔥 <b>0</b>
+              <svg class="streak__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                   aria-hidden="true" focusable="false">
+                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+              </svg>
+              <b>0</b>
             </span>
             <span id="day-count" class="today__count">0/0</span>
           </div>
@@ -109,13 +149,22 @@
         <div class="content__tools">
           <label class="sort">
             <span class="sort__label">Orden</span>
-            <select id="sort-by" class="sort-select">
-              <option value="deadline" selected>Vencimiento</option>
-              <option value="title">Título</option>
-            </select>
+            <span class="select">
+              <select id="sort-by" class="sort-select">
+                <option value="deadline" selected>Vencimiento</option>
+                <option value="title">Título</option>
+              </select>
+            </span>
           </label>
           <button id="btn-new" class="btn btn--primary" type="button"
-                  aria-expanded="false" aria-controls="task-form">Nueva tarea</button>
+                  aria-expanded="false" aria-controls="task-form">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Nueva tarea
+          </button>
         </div>
       </div>
 
@@ -155,6 +204,12 @@
       <ol id="task-list" class="timeline" aria-label="Tareas por vencimiento"></ol>
 
       <div id="empty-state" class="empty" hidden>
+        <svg class="empty__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="m8.5 12 2.5 2.5 4.5-5"/>
+        </svg>
         <p class="empty__title">Aquí no hay nada que tachar.</p>
         <p class="empty__text">Crea tu primera tarea y dale al cuño.</p>
       </div>

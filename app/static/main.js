@@ -155,8 +155,10 @@ function renderToday() {
   }
 
   const streak = computeStreak();
-  el("streak").innerHTML = `🔥 <b>${streak}</b>`;
-  el("streak").setAttribute(
+  const streakNode = el("streak");
+  streakNode.querySelector("b").textContent = String(streak);
+  streakNode.setAttribute("aria-label", streak === 1 ? "Racha: 1 día" : `Racha: ${streak} días`);
+  streakNode.setAttribute(
     "title",
     streak === 1 ? "1 día seguido completando tareas" : `${streak} días seguidos completando tareas`
   );
@@ -171,7 +173,6 @@ function setItemDone(item, isDone) {
   if (check) {
     check.setAttribute("aria-pressed", String(isDone));
     check.setAttribute("aria-label", isDone ? "Marcar como no hecha" : "Marcar como hecha");
-    check.textContent = isDone ? "✓" : "";
   }
 }
 
@@ -210,6 +211,33 @@ function makeButton(text, className, action, id) {
   return button;
 }
 
+const ICON_EDIT = `
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+       aria-hidden="true" focusable="false">
+    <path d="M12 20h9"/>
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+  </svg>`;
+
+const ICON_DELETE = `
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+       aria-hidden="true" focusable="false">
+    <path d="M3 6h18"/>
+    <path d="M8 6V4h8v2"/>
+    <path d="M19 6l-1 14H6L5 6"/>
+    <path d="M10 11v5"/>
+    <path d="M14 11v5"/>
+  </svg>`;
+
+function makeIconButton(label, icon, action, id) {
+  const button = makeButton("", "btn btn--ghost btn--sm btn--icon", action, id);
+  button.innerHTML = icon;
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  return button;
+}
+
 // Rendering
 
 function renderTasks() {
@@ -244,7 +272,6 @@ function renderItem(task) {
   check.dataset.id = task.id;
   check.setAttribute("aria-pressed", String(isDone));
   check.setAttribute("aria-label", isDone ? "Marcar como no hecha" : "Marcar como hecha");
-  check.textContent = isDone ? "✓" : "";
 
   const node = document.createElement("span");
   node.className = "timeline__node";
@@ -290,8 +317,8 @@ function renderActions(task) {
   }
 
   wrap.append(
-    makeButton("Editar", "btn btn--ghost btn--sm", "edit", task.id),
-    makeButton("Eliminar", "btn btn--ghost btn--sm", "delete", task.id)
+    makeIconButton("Editar tarea", ICON_EDIT, "edit", task.id),
+    makeIconButton("Eliminar tarea", ICON_DELETE, "delete", task.id)
   );
   return wrap;
 }
@@ -631,7 +658,6 @@ async function boot() {
 function syncMuteButton() {
   const button = el("btn-mute");
   const muted = fx.isMuted();
-  button.textContent = muted ? "🔇" : "🔈";
   button.setAttribute("aria-pressed", String(muted));
   button.setAttribute("aria-label", muted ? "Activar sonido" : "Silenciar");
 }
