@@ -1,7 +1,20 @@
 // main.js - App bootstrap and UI logic.
 
 import { login, logout, register, me, isAuthenticated } from "./auth.js";
-import { listTasks, createTask, updateTask, deleteTask } from "./tasks.js";
+import {
+  activateCalendar,
+  initCalendar,
+  refreshCalendar,
+  resetCalendar,
+} from "./calendar.js";
+import { dayKey, fromLocalInput, parseDate, toLocalInput } from "./dates.js";
+import {
+  listTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  setTaskCompleted,
+} from "./tasks.js";
 import * as fx from "./fx.js";
 
 // In-memory state for the main view.
@@ -12,36 +25,14 @@ const state = {
   dragStartId: null,
   sortBy: 'deadline',
   sortDir: 'asc',
-  done: {}, // taskId -> "YYYY-MM-DD" local completion date (client-side only)
+  view: "tasks",
+  migratedDone: false,
 };
 
 const el = (id) => document.getElementById(id);
 const field = (form, name) => form.elements.namedItem(name);
 
 // Dates
-
-// The backend returns UTC datetimes without a timezone suffix; treat them as UTC.
-function parseDate(value) {
-  if (typeof value === "string" && !/(Z|[+-]\d{2}:?\d{2})$/.test(value)) {
-    return new Date(`${value}Z`);
-  }
-  return new Date(value);
-}
-
-// ISO from the backend -> value for <input type="datetime-local">.
-function toLocalInput(iso) {
-  const date = parseDate(iso);
-  const pad = (n) => String(n).padStart(2, "0");
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
-  );
-}
-
-// Value from <input type="datetime-local"> -> UTC ISO.
-function fromLocalInput(value) {
-  return new Date(value).toISOString();
-}
 
 function formatDate(iso) {
   const date = parseDate(iso);
@@ -73,20 +64,14 @@ function sortTasks(tasks, sortBy = 'deadline', sortDir = 'asc') {
   return sorted.sort(compare);
 }
 
-// Completion, daily progress and streak (localStorage only; the backend has no
-// "completed" field, so this state lives in the browser per user).
-
-function dayKey(date) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
+// Completion lives in the backend. The old localStorage map is migrated once.
 
 function doneStorageKey() {
   const user = el("current-user").textContent || "anon";
   return `taskify_done:${user.toLowerCase()}`;
 }
 
-function loadDone() {
+function readDoneMap() {
   try {
     const parsed = JSON.parse(localStorage.getItem(doneStorageKey()));
     return parsed && typeof parsed === "object" ? parsed : {};
@@ -95,11 +80,32 @@ function loadDone() {
   }
 }
 
-function saveDone() {
+// Best-effort, one-time move of old client-side completions to MongoDB.
+async function migrateDone() {
+  if (state.migratedDone) return;
+  state.migratedDone = true;
+  const doneMap = readDoneMap();
+  const ids = Object.keys(doneMap);
+  if (ids.length === 0) return;
+
+  const pending = state.tasks.filter((task) => doneMap[task.id] && !task.completed);
+  await Promise.allSettled(
+    pending.map(async (task) => {
+      const day = doneMap[task.id];
+      const completedAt = day
+        ? new Date(`${day}T12:00:00`).toISOString()
+        : new Date().toISOString();
+      const updated = await updateTask(
+        { ...task, completed: true, completed_at: completedAt },
+        { silent: true }
+      );
+      Object.assign(task, updated);
+    })
+  );
   try {
-    localStorage.setItem(doneStorageKey(), JSON.stringify(state.done));
+    localStorage.removeItem(doneStorageKey());
   } catch {
-    /* storage unavailable: completion still works for this session */
+    /* storage unavailable: nothing else to do */
   }
 }
 
@@ -116,7 +122,12 @@ function deadlineIsToday(task) {
 
 // Consecutive days (ending today or yesterday) with at least one completion.
 function computeStreak() {
-  const days = new Set(Object.values(state.done));
+  const days = new Set();
+  for (const task of state.tasks) {
+    if (!task.completed_at) continue;
+    const date = parseDate(task.completed_at);
+    if (!Number.isNaN(date.getTime())) days.add(dayKey(date));
+  }
   const cursor = new Date();
   if (!days.has(dayKey(cursor))) {
     cursor.setDate(cursor.getDate() - 1);
@@ -132,7 +143,7 @@ function computeStreak() {
 
 function renderToday() {
   const dueToday = state.tasks.filter(deadlineIsToday);
-  const doneToday = dueToday.filter((task) => state.done[task.id]);
+  const doneToday = dueToday.filter((task) => task.completed);
   const total = dueToday.length;
   const done = doneToday.length;
   const percent = total ? Math.round((done / total) * 100) : 0;
@@ -164,8 +175,8 @@ function renderToday() {
   );
 }
 
-// Toggle a task's local completion and react in place (no full re-render, so
-// the stamp animation is not wiped out).
+// Toggle a task's completion and react in place (no full re-render, so the
+// stamp animation is not wiped out).
 function setItemDone(item, isDone) {
   if (!item) return;
   item.classList.toggle("timeline__item--done", isDone);
@@ -176,18 +187,29 @@ function setItemDone(item, isDone) {
   }
 }
 
-function toggleComplete(id, item) {
-  const wasDone = Boolean(state.done[id]);
-  if (wasDone) {
-    delete state.done[id];
-    fx.sound.save(); // a soft tick, so un-completing never feels like an error
-  } else {
-    state.done[id] = dayKey(new Date());
-    fx.complete(item); // stamp + confetti + sound: the one big moment
+async function toggleComplete(id, item) {
+  const task = state.tasks.find((entry) => entry.id === id);
+  if (!task) return;
+  const next = !task.completed;
+  const check = item && item.querySelector(".timeline__check");
+  if (check) check.disabled = true;
+
+  try {
+    const updated = await setTaskCompleted(id, next);
+    Object.assign(task, updated);
+    setItemDone(item, updated.completed);
+    if (updated.completed) {
+      fx.complete(item); // stamp + confetti + sound: the one big moment
+    } else {
+      fx.sound.save(); // a soft tick, so un-completing never feels like an error
+    }
+    renderToday();
+    refreshCalendar();
+  } catch (error) {
+    setStatus(el("app-status"), error.message, "error");
+  } finally {
+    if (check) check.disabled = false;
   }
-  saveDone();
-  setItemDone(item, !wasDone);
-  renderToday();
 }
 
 // UI helpers
@@ -261,7 +283,7 @@ function renderItem(task) {
   item.className = `timeline__item timeline__item--${proximity}`;
   item.dataset.id = task.id;
   item.draggable = true;
-  const isDone = Boolean(state.done[task.id]);
+  const isDone = Boolean(task.completed);
   if (isDone) item.classList.add("timeline__item--done");
   if (state.pendingDelete === task.id) item.classList.add("timeline__item--confirming");
 
@@ -401,6 +423,7 @@ async function submitTask(event) {
     closeForm();
     renderTasks();
     renderToday();
+    refreshCalendar();
     if (createdId) {
       fx.enter(document.querySelector(`.timeline__item[data-id="${createdId}"]`));
     }
@@ -420,10 +443,6 @@ async function removeTask(id) {
   try {
     await deleteTask(id); // plays the lower delete sound
     state.tasks = state.tasks.filter((t) => t.id !== id);
-    if (state.done[id]) {
-      delete state.done[id];
-      saveDone();
-    }
     if (item) await fx.leave(item);
     setStatus(status, "Tarea eliminada.", "ok");
   } catch (error) {
@@ -432,6 +451,7 @@ async function removeTask(id) {
     state.pendingDelete = null;
     renderTasks();
     renderToday();
+    refreshCalendar();
   }
 }
 
@@ -526,6 +546,7 @@ async function loadTasks() {
   setStatus(status, "Cargando tareas…");
   try {
     state.tasks = await listTasks();
+    await migrateDone();
     renderTasks();
     renderToday();
     setStatus(status, "");
@@ -550,7 +571,6 @@ function showApp(user) {
   el("view-auth").hidden = true;
   el("view-app").hidden = false;
   el("current-user").textContent = (user && user.username) || "";
-  state.done = loadDone(); // per-user completion state from localStorage
   loadTasks();
 }
 
@@ -576,6 +596,32 @@ function onTabsKeydown(event) {
   const next = el("tab-login").getAttribute("aria-selected") === "true" ? "register" : "login";
   selectTab(next);
   el(next === "login" ? "tab-login" : "tab-register").focus();
+}
+
+// Main views: the existing task list and the calendar.
+function selectView(name) {
+  state.view = name;
+  const isTasks = name === "tasks";
+  const tasksTab = el("tab-view-tasks");
+  const calendarTab = el("tab-view-calendar");
+
+  el("view-tasks").hidden = !isTasks;
+  el("view-calendar").hidden = isTasks;
+  tasksTab.setAttribute("aria-selected", String(isTasks));
+  calendarTab.setAttribute("aria-selected", String(!isTasks));
+  tasksTab.tabIndex = isTasks ? 0 : -1;
+  calendarTab.tabIndex = isTasks ? -1 : 0;
+  el("main").classList.toggle("content--wide", !isTasks);
+
+  if (!isTasks) activateCalendar();
+}
+
+function onViewTabsKeydown(event) {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const next = state.view === "tasks" ? "calendar" : "tasks";
+  selectView(next);
+  el(next === "tasks" ? "tab-view-tasks" : "tab-view-calendar").focus();
 }
 
 // Auth
@@ -634,8 +680,10 @@ function onLogout() {
   logout();
   state.tasks = [];
   state.pendingDelete = null;
-  state.done = {};
+  state.migratedDone = false;
   closeForm();
+  resetCalendar();
+  selectView("tasks");
   showAuth();
 }
 
@@ -669,6 +717,11 @@ function init() {
   el("form-login").addEventListener("submit", onLogin);
   el("form-register").addEventListener("submit", onRegister);
   el("btn-logout").addEventListener("click", onLogout);
+
+  el("tab-view-tasks").addEventListener("click", () => selectView("tasks"));
+  el("tab-view-calendar").addEventListener("click", () => selectView("calendar"));
+  document.querySelector(".viewtabs").addEventListener("keydown", onViewTabsKeydown);
+  initCalendar();
 
   syncMuteButton();
   el("btn-mute").addEventListener("click", () => {
@@ -704,6 +757,9 @@ function init() {
 
   window.addEventListener("taskify:unauthorized", () => {
     showAuth("Tu sesión expiró. Vuelve a entrar.");
+  });
+  document.addEventListener("taskify:tasks-changed", () => {
+    loadTasks();
   });
 
   boot();
