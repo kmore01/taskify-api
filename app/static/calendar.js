@@ -1,5 +1,3 @@
-// calendar.js - Calendar views and interactions.
-
 import {
   addDays,
   addMonths,
@@ -39,6 +37,7 @@ const SNAP_MINUTES = 15;
 const MAX_END_MINUTES = MINUTES_PER_DAY - SNAP_MINUTES;
 const MIN_EVENT_HEIGHT = 18;
 const ALL_DAY_LANES = 2;
+const DRAG_THRESHOLD = 5;
 
 const COLORS = [
   { key: "tomato", label: "Tomate" },
@@ -65,26 +64,18 @@ const state = {
   maxLanes: 3,
   timeScroll: null,
   suppressClick: false,
+  miniKey: "",
 };
 
 const el = (id) => document.getElementById(id);
 
 function setStatus(message = "", kind = "info") {
-  const node = el("cal-status");
-  if (!node) return;
-  node.textContent = message;
-  if (message) {
-    node.dataset.kind = kind;
-  } else {
-    delete node.dataset.kind;
-  }
+  setInlineStatus(el("cal-status"), message, kind);
 }
 
 function maxLanesForWidth() {
   return window.innerWidth < 720 ? 2 : 3;
 }
-
-// Ranges
 
 function monthGridStart() {
   return startOfWeek(startOfMonth(state.cursor));
@@ -119,8 +110,6 @@ function renderTitle() {
   }
 }
 
-// Data
-
 async function loadCalendar() {
   if (!state.initialized) return;
   const { start, end } = visibleRange();
@@ -141,8 +130,6 @@ async function loadCalendar() {
   }
   renderCalendar();
 }
-
-// Month view
 
 function renderCalendar() {
   if (!state.initialized) return;
@@ -350,8 +337,6 @@ function renderMonthEvent(segment) {
 
   return event;
 }
-
-// Week and day views
 
 function timeViewDays() {
   if (state.view === "week") {
@@ -699,7 +684,7 @@ function renderTimedEvent(entry, day) {
   title.textContent = task.title;
   block.appendChild(title);
 
-  const timeText = timedSegmentLabel(task, day);
+  const timeText = segmentTimeLabel(task, day);
   if (timeText) {
     const time = document.createElement("span");
     time.className = "cal-time__event-time";
@@ -741,7 +726,7 @@ function renderTimedEvent(entry, day) {
   return block;
 }
 
-function timedSegmentLabel(task, day) {
+function segmentTimeLabel(task, day) {
   const { start, end } = taskWindow(task);
   const startsHere = sameDay(start, day);
   const endsHere = sameDay(end, day);
@@ -752,8 +737,6 @@ function timedSegmentLabel(task, day) {
   if (endsHere) return `… ${formatTime(end)}`;
   return "";
 }
-
-// Time helpers and interactions
 
 function minutesOfDay(date) {
   return date.getHours() * 60 + date.getMinutes();
@@ -805,6 +788,34 @@ function highlightTimeDay(key) {
     ?.classList.add("cal-allday-col--drop");
 }
 
+function createGhost(node) {
+  const rect = node.getBoundingClientRect();
+  const ghost = node.cloneNode(true);
+  ghost.classList.remove("cal-event--dragging");
+  ghost.classList.add("cal-event-ghost");
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.tabIndex = -1;
+  ghost.style.position = "fixed";
+  ghost.style.left = `${rect.left}px`;
+  ghost.style.top = `${rect.top}px`;
+  ghost.style.width = `${rect.width}px`;
+  ghost.style.height = `${rect.height}px`;
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+function trackPointer(onMove, onUp) {
+  const end = (event) => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    onUp(event);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
 function startTimedMovePointer(event, task) {
   if (event.button !== undefined && event.button !== 0) return;
   if (event.target.closest(".cal-time__event-resize")) return;
@@ -817,7 +828,6 @@ function startTimedMovePointer(event, task) {
   const originalDate = parseDate(task.date);
   const originalDeadline = parseDate(task.deadline);
   const node = event.currentTarget;
-  const rect = node.getBoundingClientRect();
   let dragging = false;
   let ghost = null;
 
@@ -825,30 +835,17 @@ function startTimedMovePointer(event, task) {
     const dx = moveEvent.clientX - startX;
     const dy = moveEvent.clientY - startY;
     if (!dragging) {
-      if (Math.hypot(dx, dy) < 5) return;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       dragging = true;
       suppressNextClick();
       node.classList.add("cal-event--dragging");
-      ghost = node.cloneNode(true);
-      ghost.classList.remove("cal-event--dragging");
-      ghost.classList.add("cal-event-ghost");
-      ghost.setAttribute("aria-hidden", "true");
-      ghost.tabIndex = -1;
-      ghost.style.position = "fixed";
-      ghost.style.left = `${rect.left}px`;
-      ghost.style.top = `${rect.top}px`;
-      ghost.style.width = `${rect.width}px`;
-      ghost.style.height = `${rect.height}px`;
-      document.body.appendChild(ghost);
+      ghost = createGhost(node);
     }
     ghost.style.transform = `translate(${dx}px, ${dy}px)`;
     highlightTimeDay(dayUnderPointerTime(moveEvent.clientX, moveEvent.clientY));
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     highlightTimeDay(null);
     if (ghost) ghost.remove();
     node.classList.remove("cal-event--dragging");
@@ -876,9 +873,7 @@ function startTimedMovePointer(event, task) {
     void updateTaskDates(task, date.toISOString(), deadline.toISOString());
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
 
 function startTimedResizePointer(event, task) {
@@ -892,7 +887,7 @@ function startTimedResizePointer(event, task) {
 
   function onMove(moveEvent) {
     if (!resizing) {
-      if (Math.abs(moveEvent.clientY - startY) < 4) return;
+      if (Math.abs(moveEvent.clientY - startY) < DRAG_THRESHOLD) return;
       resizing = true;
       suppressNextClick();
       if (node) node.classList.add("cal-event--dragging");
@@ -903,9 +898,6 @@ function startTimedResizePointer(event, task) {
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     highlightTimeDay(null);
     if (node) node.classList.remove("cal-event--dragging");
     if (upEvent.type === "pointercancel" || !resizing) return;
@@ -940,9 +932,7 @@ function startTimedResizePointer(event, task) {
     void updateTaskDates(task, task.date, deadline.toISOString());
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
 
 function startAllDayMovePointer(event, task) {
@@ -954,7 +944,6 @@ function startAllDayMovePointer(event, task) {
   const originKey =
     dayUnderPointerTime(startX, startY) || dayKey(parseDate(task.date));
   const node = event.currentTarget;
-  const rect = node.getBoundingClientRect();
   let dragging = false;
   let ghost = null;
 
@@ -962,30 +951,17 @@ function startAllDayMovePointer(event, task) {
     const dx = moveEvent.clientX - startX;
     const dy = moveEvent.clientY - startY;
     if (!dragging) {
-      if (Math.hypot(dx, dy) < 5) return;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       dragging = true;
       suppressNextClick();
       node.classList.add("cal-event--dragging");
-      ghost = node.cloneNode(true);
-      ghost.classList.remove("cal-event--dragging");
-      ghost.classList.add("cal-event-ghost");
-      ghost.setAttribute("aria-hidden", "true");
-      ghost.tabIndex = -1;
-      ghost.style.position = "fixed";
-      ghost.style.left = `${rect.left}px`;
-      ghost.style.top = `${rect.top}px`;
-      ghost.style.width = `${rect.width}px`;
-      ghost.style.height = `${rect.height}px`;
-      document.body.appendChild(ghost);
+      ghost = createGhost(node);
     }
     ghost.style.transform = `translate(${dx}px, ${dy}px)`;
     highlightTimeDay(dayUnderPointerTime(moveEvent.clientX, moveEvent.clientY));
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     highlightTimeDay(null);
     if (ghost) ghost.remove();
     node.classList.remove("cal-event--dragging");
@@ -998,9 +974,7 @@ function startAllDayMovePointer(event, task) {
     void shiftTaskDays(task, delta);
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
 
 function startAllDayResizePointer(event, task) {
@@ -1014,7 +988,7 @@ function startAllDayResizePointer(event, task) {
 
   function onMove(moveEvent) {
     if (!resizing) {
-      if (Math.abs(moveEvent.clientX - startX) < 5) return;
+      if (Math.abs(moveEvent.clientX - startX) < DRAG_THRESHOLD) return;
       resizing = true;
       suppressNextClick();
       if (node) node.classList.add("cal-event--dragging");
@@ -1025,9 +999,6 @@ function startAllDayResizePointer(event, task) {
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     highlightTimeDay(null);
     if (node) node.classList.remove("cal-event--dragging");
     if (upEvent.type === "pointercancel" || !resizing) return;
@@ -1039,9 +1010,7 @@ function startAllDayResizePointer(event, task) {
     if (targetKey) void resizeTaskToDay(task, targetKey);
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
 
 function startCreatePointer(event, day, column) {
@@ -1053,7 +1022,7 @@ function startCreatePointer(event, day, column) {
 
   function onMove(moveEvent) {
     if (!dragging) {
-      if (Math.abs(moveEvent.clientY - startY) < 5) return;
+      if (Math.abs(moveEvent.clientY - startY) < DRAG_THRESHOLD) return;
       dragging = true;
       ghost = document.createElement("div");
       ghost.className = "cal-time__create-ghost";
@@ -1069,9 +1038,6 @@ function startCreatePointer(event, day, column) {
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     if (ghost) ghost.remove();
     if (upEvent.type === "pointercancel") return;
     if (!dragging) {
@@ -1103,12 +1069,8 @@ function startCreatePointer(event, day, column) {
     });
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
-
-// Agenda view
 
 function renderAgenda() {
   const main = el("cal-main");
@@ -1118,8 +1080,8 @@ function renderAgenda() {
   const entries = [];
 
   for (const task of state.tasks) {
-    const { start } = taskWindow(task);
-    if (start > rangeEnd) continue;
+    const { start, end } = taskWindow(task);
+    if (end < rangeStart || start > rangeEnd) continue;
     entries.push({
       task,
       day: start < rangeStart ? rangeStart : startOfDay(start),
@@ -1227,7 +1189,6 @@ function startMovePointer(event, task) {
   const startX = event.clientX;
   const startY = event.clientY;
   const node = event.currentTarget;
-  const rect = node.getBoundingClientRect();
   let dragging = false;
   let ghost = null;
 
@@ -1235,29 +1196,17 @@ function startMovePointer(event, task) {
     const dx = moveEvent.clientX - startX;
     const dy = moveEvent.clientY - startY;
     if (!dragging) {
-      if (Math.hypot(dx, dy) < 5) return;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       dragging = true;
       suppressNextClick();
       node.classList.add("cal-event--dragging");
-      ghost = node.cloneNode(true);
-      ghost.classList.remove("cal-event--dragging");
-      ghost.classList.add("cal-event-ghost");
-      ghost.setAttribute("aria-hidden", "true");
-      ghost.tabIndex = -1;
-      ghost.style.position = "fixed";
-      ghost.style.left = `${rect.left}px`;
-      ghost.style.top = `${rect.top}px`;
-      ghost.style.width = `${rect.width}px`;
-      document.body.appendChild(ghost);
+      ghost = createGhost(node);
     }
     ghost.style.transform = `translate(${dx}px, ${dy}px)`;
     highlightDay(dayUnderPointer(moveEvent.clientX, moveEvent.clientY));
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     highlightDay(null);
     if (ghost) ghost.remove();
     node.classList.remove("cal-event--dragging");
@@ -1270,9 +1219,7 @@ function startMovePointer(event, task) {
     void shiftTaskDays(task, delta);
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
 
 function startResizePointer(event, task) {
@@ -1286,7 +1233,7 @@ function startResizePointer(event, task) {
 
   function onMove(moveEvent) {
     if (!resizing) {
-      if (Math.abs(moveEvent.clientX - startX) < 5) return;
+      if (Math.abs(moveEvent.clientX - startX) < DRAG_THRESHOLD) return;
       resizing = true;
       suppressNextClick();
       if (node) node.classList.add("cal-event--dragging");
@@ -1295,9 +1242,6 @@ function startResizePointer(event, task) {
   }
 
   function onUp(upEvent) {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
     highlightDay(null);
     if (node) node.classList.remove("cal-event--dragging");
     if (upEvent.type === "pointercancel" || !resizing) return;
@@ -1306,9 +1250,7 @@ function startResizePointer(event, task) {
     if (targetKey) void resizeTaskToDay(task, targetKey);
   }
 
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  trackPointer(onMove, onUp);
 }
 
 async function updateTaskDates(task, date, deadline) {
@@ -1363,11 +1305,12 @@ function resizeTaskToDay(task, targetKey) {
   return updateTaskDates(task, task.date, deadline.toISOString());
 }
 
-// Mini calendar
-
 function renderMini() {
   const container = el("cal-mini");
   if (!container) return;
+  const key = dayKey(state.cursor);
+  if (state.miniKey === key) return;
+  state.miniKey = key;
   container.innerHTML = "";
 
   const head = document.createElement("div");
@@ -1433,8 +1376,6 @@ function miniNavButton(label, text, delta) {
   return button;
 }
 
-// Popovers
-
 function closePopover() {
   const popover = el("cal-popover");
   if (!popover) return;
@@ -1492,15 +1433,7 @@ function sortDayTasks(a, b) {
 
 function taskTimeLabel(task, day) {
   if (task.all_day) return "Todo el día";
-  const { start, end } = taskWindow(task);
-  const startsHere = sameDay(start, day);
-  const endsHere = sameDay(end, day);
-  if (startsHere && endsHere) {
-    return `${formatTime(start)} – ${formatTime(end)}`;
-  }
-  if (startsHere) return `${formatTime(start)} …`;
-  if (endsHere) return `… ${formatTime(end)}`;
-  return "Todo el día";
+  return segmentTimeLabel(task, day);
 }
 
 function taskRangeLabel(task) {
@@ -1556,6 +1489,7 @@ function makeFieldBlock(labelText, control) {
 }
 
 function setInlineStatus(node, message = "", kind = "info") {
+  if (!node) return;
   node.textContent = message;
   if (message) {
     node.dataset.kind = kind;
@@ -1963,8 +1897,6 @@ function openTaskDetails(task) {
   body.appendChild(actions);
 }
 
-// Navigation and events
-
 function navigate(delta) {
   if (state.view === "month" || state.view === "agenda") {
     state.cursor = addMonths(state.cursor, delta);
@@ -2094,5 +2026,6 @@ export function resetCalendar() {
   state.view = "month";
   state.cursor = startOfDay(new Date());
   state.timeScroll = null;
+  state.miniKey = "";
   closePopover();
 }

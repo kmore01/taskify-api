@@ -1,4 +1,3 @@
-// dates.js - Shared local/UTC date helpers.
 // The API returns naive UTC datetimes, so strings without a timezone get a Z.
 
 const pad = (n) => String(n).padStart(2, "0");

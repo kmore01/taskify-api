@@ -1,5 +1,3 @@
-// tasks.js - CRUD against /tasks.
-
 import { apiFetch } from "./api.js";
 import { sound } from "./fx.js";
 

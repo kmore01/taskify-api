@@ -32,7 +32,6 @@
   <body>
     <a class="skip-link" href="#main">Saltar al contenido</a>
 
-    <!-- Auth -->
     <section id="view-auth" class="auth" aria-labelledby="auth-title">
       <div class="auth__grid">
         <div class="auth__intro">
@@ -85,7 +84,6 @@
             </button>
           </div>
 
-          <!-- Login -->
           <form
             id="form-login"
             class="form"
@@ -111,7 +109,6 @@
             </div>
           </form>
 
-          <!-- Register -->
           <form
             id="form-register"
             class="form"
@@ -160,7 +157,6 @@
       </div>
     </section>
 
-    <!-- App -->
     <div id="view-app" hidden>
       <header class="appbar">
         <div class="appbar__inner">
@@ -266,7 +262,6 @@
           role="tabpanel"
           aria-labelledby="tab-view-tasks"
         >
-          <!-- Today: progress and streak -->
           <section class="today" aria-labelledby="today-title">
             <div class="today__head">
               <h2 id="today-title" class="today__title">Hoy</h2>
@@ -347,7 +342,6 @@
             </div>
           </div>
 
-          <!-- Create / edit form -->
           <form id="task-form" class="form form--task" hidden novalidate>
             <input type="hidden" name="id" />
 
@@ -357,8 +351,8 @@
             </label>
 
             <label class="field field--wide">
-              <span class="field__label">Descripción</span>
-              <textarea name="description" rows="3" required></textarea>
+              <span class="field__label">Descripción (opcional)</span>
+              <textarea name="description" rows="3"></textarea>
             </label>
 
             <label class="field">
@@ -388,7 +382,6 @@
             aria-live="polite"
           ></p>
 
-          <!-- Deadlines timeline -->
           <ol
             id="task-list"
             class="timeline"

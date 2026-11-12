@@ -1,5 +1,3 @@
-// main.js - App bootstrap and UI logic.
-
 import { login, logout, register, me, isAuthenticated } from "./auth.js";
 import {
   activateCalendar,
@@ -17,27 +15,26 @@ import {
 } from "./tasks.js";
 import * as fx from "./fx.js";
 
-// In-memory state for the main view.
 const state = {
   tasks: [],
   editingId: null,
   pendingDelete: null,
-  dragStartId: null,
-  sortBy: 'deadline',
-  sortDir: 'asc',
+  sortBy: "deadline",
   view: "tasks",
   migratedDone: false,
+  loadId: 0,
 };
 
 const el = (id) => document.getElementById(id);
 const field = (form, name) => form.elements.namedItem(name);
 
-// Dates
-
-function formatDate(iso) {
+function formatDate(iso, allDay = false) {
   const date = parseDate(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" });
+  return date.toLocaleString(
+    "es-ES",
+    allDay ? { dateStyle: "medium" } : { dateStyle: "medium", timeStyle: "short" }
+  );
 }
 
 // Deadline proximity: "overdue", "soon" (<= 48 h) or "later".
@@ -51,17 +48,15 @@ function deadlineState(iso) {
 
 const DEADLINE_LABEL = { overdue: "Vencida", soon: "Próxima", later: "" };
 
-// Ordenar tareas por criterio y dirección.
-function sortTasks(tasks, sortBy = 'deadline', sortDir = 'asc') {
-  const sorted = [...tasks];
-  const compare = (a, b) => {
-    const valA = sortBy === 'deadline' ? parseDate(a.deadline) : a.title;
-    const valB = sortBy === 'deadline' ? parseDate(b.deadline) : b.title;
-    if (valA < valB) return sortDir === 'asc' ? -1 : 1;
-    if (valA > valB) return sortDir === 'asc' ? 1 : -1;
-    return 0;
-  };
-  return sorted.sort(compare);
+// Pending tasks first; then by deadline or by title (accent-aware).
+function sortTasks(tasks, sortBy = "deadline") {
+  return [...tasks].sort((a, b) => {
+    if (Boolean(a.completed) !== Boolean(b.completed)) return a.completed ? 1 : -1;
+    if (sortBy === "title") {
+      return a.title.localeCompare(b.title, "es", { sensitivity: "base", numeric: true });
+    }
+    return parseDate(a.deadline) - parseDate(b.deadline);
+  });
 }
 
 // Completion lives in the backend. The old localStorage map is migrated once.
@@ -212,8 +207,6 @@ async function toggleComplete(id, item) {
   }
 }
 
-// UI helpers
-
 function setStatus(node, message = "", kind = "info") {
   node.textContent = message;
   if (message) {
@@ -260,8 +253,6 @@ function makeIconButton(label, icon, action, id) {
   return button;
 }
 
-// Rendering
-
 function renderTasks() {
   const list = el("task-list");
   const empty = el("empty-state");
@@ -270,7 +261,7 @@ function renderTasks() {
   empty.hidden = state.tasks.length > 0;
   list.hidden = state.tasks.length === 0;
 
-  const sorted = sortTasks(state.tasks, state.sortBy, state.sortDir);
+  const sorted = sortTasks(state.tasks, state.sortBy);
   for (const task of sorted) {
     list.appendChild(renderItem(task));
   }
@@ -282,7 +273,6 @@ function renderItem(task) {
   const item = document.createElement("li");
   item.className = `timeline__item timeline__item--${proximity}`;
   item.dataset.id = task.id;
-  item.draggable = true;
   const isDone = Boolean(task.completed);
   if (isDone) item.classList.add("timeline__item--done");
   if (state.pendingDelete === task.id) item.classList.add("timeline__item--confirming");
@@ -303,22 +293,34 @@ function renderItem(task) {
   title.className = "timeline__title";
   title.textContent = task.title;
 
-  const desc = document.createElement("p");
-  desc.className = "timeline__desc";
-  desc.textContent = task.description;
-
   const meta = document.createElement("p");
   meta.className = "timeline__meta";
-  const label = DEADLINE_LABEL[proximity];
+  const label = isDone ? "" : DEADLINE_LABEL[proximity];
   if (label) {
     const badge = document.createElement("span");
     badge.className = "badge";
     badge.textContent = label;
     meta.append(badge);
   }
-  meta.append(document.createTextNode(`Vence el ${formatDate(task.deadline)}`));
+  if (task.category) {
+    const chip = document.createElement("span");
+    chip.className = "badge badge--category";
+    chip.dataset.color = task.color || "";
+    chip.textContent = task.category;
+    meta.append(chip);
+  }
+  meta.append(
+    document.createTextNode(`Vence el ${formatDate(task.deadline, task.all_day)}`)
+  );
 
-  item.append(check, node, title, desc, meta, renderActions(task));
+  item.append(check, node, title);
+  if (task.description) {
+    const desc = document.createElement("p");
+    desc.className = "timeline__desc";
+    desc.textContent = task.description;
+    item.append(desc);
+  }
+  item.append(meta, renderActions(task));
   return item;
 }
 
@@ -344,8 +346,6 @@ function renderActions(task) {
   );
   return wrap;
 }
-
-// Task form
 
 function openForm(task = null) {
   const form = el("task-form");
@@ -435,8 +435,6 @@ async function submitTask(event) {
   }
 }
 
-// List actions
-
 async function removeTask(id) {
   const status = el("app-status");
   const item = document.querySelector(`.timeline__item[data-id="${id}"]`);
@@ -483,82 +481,27 @@ function onListClick(event) {
   }
 }
 
-// Drag-and-drop reordering
-
-function handleDragStart(event) {
-  const item = event.target.closest(".timeline__item");
-  if (!item) return;
-  state.dragStartId = item.dataset.id;
-  item.classList.add("dragging");
-}
-
-function handleDragOver(event) {
-  event.preventDefault();
-  const afterElement = getDragAfterElement(
-    el("task-list"),
-    event.clientY
-  );
-  const draggable = document.querySelector(
-    `.timeline__item[data-id="${state.dragStartId}"]`
-  );
-  if (!draggable) return;
-  if (afterElement == null) {
-    el("task-list").appendChild(draggable);
-  } else {
-    el("task-list").insertBefore(draggable, afterElement);
-  }
-}
-
-function handleDrop() {
-  el("task-list")
-    .querySelectorAll(".timeline__item")
-    .forEach((node) => node.classList.remove("dragging"));
-  state.dragStartId = null;
-}
-
-function handleDragEnd() {
-  el("task-list")
-    .querySelectorAll(".timeline__item")
-    .forEach((node) => node.classList.remove("dragging"));
-  state.dragStartId = null;
-}
-
-function getDragAfterElement(container, y) {
-  const draggableElements = [
-    ...container.querySelectorAll(".timeline__item:not(.dragging)"),
-  ];
-
-  return draggableElements.reduce((closest, child) => {
-    const box = child.getBoundingClientRect();
-    const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) {
-      return { offset, element: child };
-    } else {
-      return closest;
-    }
-  }, { offset: Number.NEGATIVE_INFINITY }).element;
-}
-
-// Data loading
-
 async function loadTasks() {
   const status = el("app-status");
+  const loadId = ++state.loadId;
   setStatus(status, "Cargando tareas…");
   try {
-    state.tasks = await listTasks();
+    const tasks = await listTasks();
+    if (loadId !== state.loadId) return;
+    state.tasks = tasks;
     await migrateDone();
+    if (loadId !== state.loadId) return;
     renderTasks();
     renderToday();
     setStatus(status, "");
   } catch (error) {
+    if (loadId !== state.loadId) return;
     state.tasks = [];
     renderTasks();
     renderToday();
     setStatus(status, error.message, "error");
   }
 }
-
-// Views
 
 function showAuth(message = "") {
   el("view-app").hidden = true;
@@ -572,6 +515,17 @@ function showApp(user) {
   el("view-app").hidden = false;
   el("current-user").textContent = (user && user.username) || "";
   loadTasks();
+}
+
+function resetAppState() {
+  state.loadId += 1;
+  state.tasks = [];
+  state.pendingDelete = null;
+  state.editingId = null;
+  state.migratedDone = false;
+  closeForm();
+  resetCalendar();
+  selectView("tasks");
 }
 
 function selectTab(name) {
@@ -589,7 +543,6 @@ function selectTab(name) {
   setStatus(el("auth-status"), "");
 }
 
-// Arrow-key navigation between ARIA tabs.
 function onTabsKeydown(event) {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
   event.preventDefault();
@@ -598,7 +551,6 @@ function onTabsKeydown(event) {
   el(next === "login" ? "tab-login" : "tab-register").focus();
 }
 
-// Main views: the existing task list and the calendar.
 function selectView(name) {
   state.view = name;
   const isTasks = name === "tasks";
@@ -623,8 +575,6 @@ function onViewTabsKeydown(event) {
   selectView(next);
   el(next === "tasks" ? "tab-view-tasks" : "tab-view-calendar").focus();
 }
-
-// Auth
 
 async function onLogin(event) {
   event.preventDefault();
@@ -678,16 +628,9 @@ async function onRegister(event) {
 
 function onLogout() {
   logout();
-  state.tasks = [];
-  state.pendingDelete = null;
-  state.migratedDone = false;
-  closeForm();
-  resetCalendar();
-  selectView("tasks");
+  resetAppState();
   showAuth();
 }
-
-// Boot
 
 async function boot() {
   if (!isAuthenticated()) {
@@ -734,28 +677,22 @@ function init() {
     else closeForm();
   });
   el("task-cancel").addEventListener("click", closeForm);
+  el("task-form").addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeForm();
+    el("btn-new").focus();
+  });
   el("task-form").addEventListener("submit", submitTask);
   el("task-list").addEventListener("click", onListClick);
 
-  // Drag-and-drop reordering
-  el("task-list").addEventListener("dragstart", handleDragStart);
-  el("task-list").addEventListener("dragover", handleDragOver);
-  el("task-list").addEventListener("drop", handleDrop);
-  el("task-list").addEventListener("dragend", handleDragEnd);
-
   const sortSelect = el("sort-by");
   sortSelect.addEventListener("change", () => {
-    // Si cambia el criterio, reiniciar a asc; si es el mismo, alternar
-    if (state.sortBy === sortSelect.value) {
-      state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      state.sortBy = sortSelect.value;
-      state.sortDir = 'asc';
-    }
+    state.sortBy = sortSelect.value;
     renderTasks();
   });
 
   window.addEventListener("taskify:unauthorized", () => {
+    resetAppState();
     showAuth("Tu sesión expiró. Vuelve a entrar.");
   });
   document.addEventListener("taskify:tasks-changed", () => {

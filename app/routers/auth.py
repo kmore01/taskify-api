@@ -1,5 +1,3 @@
-### Auth Users API ###
-
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException

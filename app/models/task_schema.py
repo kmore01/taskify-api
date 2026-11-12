@@ -1,4 +1,3 @@
-# Task -> JSON
 def task_schema(task) -> dict:
     return {
         "id": str(task["_id"]),

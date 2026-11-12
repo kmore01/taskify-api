@@ -1,16 +1,9 @@
-### Tasks API ###
-
-# CRUD:
-# - Create --> Post
-# - Read --> Get
-# - Update --> Put
-# - Delete --> Delete.
-
 from datetime import date, datetime, time, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pymongo import ReturnDocument
 
 from app.db.database import db
 from app.deps import get_current_user
@@ -21,8 +14,6 @@ from app.models.task_schema import task_schema, tasks_schema
 router = APIRouter(
     prefix="/tasks", tags=["tasks"], responses={404: {"message": "Not found"}}
 )
-
-# await waits until an async subroutine finishes
 
 # Every route requires auth and each task stores its owner, so users only
 # see and modify their own tasks.
@@ -77,13 +68,18 @@ def parse_date_bound(value: str, *, end_of_day: bool) -> datetime:
 
 @router.post("/", response_model=Task, status_code=201)
 async def create_task(task: Task, user=Depends(get_current_user)):
-    if await task_exists("title", task.title, user["_id"]) is not None:
+    if (
+        await db.tasks.find_one(
+            {"title": task.title, "owner": user["_id"]}, {"_id": 1}
+        )
+        is not None
+    ):
         raise HTTPException(
             status_code=409,
             detail=ErrorResponse(error="Task already exists").model_dump(),
         )
     task_dict = task.model_dump()
-    del task_dict["id"]  # MongoDB will create the id
+    del task_dict["id"]
     task_dict["date"] = to_utc_naive(task_dict["date"])
     task_dict["deadline"] = to_utc_naive(task_dict["deadline"])
     validate_dates(task_dict["date"], task_dict["deadline"])
@@ -91,10 +87,9 @@ async def create_task(task: Task, user=Depends(get_current_user)):
         task_dict["completed_at"] = task_dict["completed_at"] or utc_now()
     else:
         task_dict["completed_at"] = None
-    task_dict["owner"] = user["_id"]  # Task belongs to the authenticated user
+    task_dict["owner"] = user["_id"]
     id = (await db.tasks.insert_one(task_dict)).inserted_id
-    new_task = task_schema(await db.tasks.find_one({"_id": id}))
-    return Task(**new_task)
+    return Task(**task_schema({**task_dict, "_id": id}))
 
 
 @router.get("/", response_model=TaskPage)
@@ -130,7 +125,7 @@ async def list_tasks(
     }
 
 
-@router.get("/{id}", response_model=Task)  # Detail by path parameter
+@router.get("/{id}", response_model=Task)
 async def get_task(id: str, user=Depends(get_current_user)):
     obj_id = parse_object_id(id)
     task = await task_exists("_id", obj_id, user["_id"])
@@ -139,11 +134,6 @@ async def get_task(id: str, user=Depends(get_current_user)):
             status_code=404, detail=ErrorResponse(error="Task not found").model_dump()
         )
     return task
-
-
-# @router.get("/")  # Query
-# async def task_id2(id: str):
-#    return await task_exists("_id", ObjectId(id))
 
 
 @router.put("/", response_model=Task)
@@ -158,7 +148,7 @@ async def update_task(task: Task, user=Depends(get_current_user)):
     if existing is None:
         raise HTTPException(
             status_code=404,
-            detail=ErrorResponse(error="Task does not exists").model_dump(),
+            detail=ErrorResponse(error="Task does not exist").model_dump(),
         )
 
     # Only touch the fields the client sent so older clients do not wipe
@@ -179,11 +169,20 @@ async def update_task(task: Task, user=Depends(get_current_user)):
         else:
             changes["completed_at"] = None
 
-    if changes:
-        await db.tasks.update_one(
-            {"_id": obj_id, "owner": user["_id"]}, {"$set": changes}
+    if not changes:
+        return Task(**task_schema(existing))
+
+    updated = await db.tasks.find_one_and_update(
+        {"_id": obj_id, "owner": user["_id"]},
+        {"$set": changes},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorResponse(error="Task does not exist").model_dump(),
         )
-    return await task_exists("_id", obj_id, user["_id"])
+    return Task(**task_schema(updated))
 
 
 @router.patch("/{id}/completed", response_model=Task)
@@ -191,7 +190,7 @@ async def set_task_completed(
     id: str, payload: TaskCompletion, user=Depends(get_current_user)
 ):
     obj_id = parse_object_id(id)
-    result = await db.tasks.update_one(
+    updated = await db.tasks.find_one_and_update(
         {"_id": obj_id, "owner": user["_id"]},
         {
             "$set": {
@@ -199,13 +198,14 @@ async def set_task_completed(
                 "completed_at": utc_now() if payload.completed else None,
             }
         },
+        return_document=ReturnDocument.AFTER,
     )
-    if result.matched_count == 0:
+    if updated is None:
         raise HTTPException(
             status_code=404,
-            detail=ErrorResponse(error="Task does not exists").model_dump(),
+            detail=ErrorResponse(error="Task does not exist").model_dump(),
         )
-    return await task_exists("_id", obj_id, user["_id"])
+    return Task(**task_schema(updated))
 
 
 @router.delete("/{id}", status_code=204)
@@ -215,15 +215,10 @@ async def delete_task(id: str, user=Depends(get_current_user)):
     if not found:
         raise HTTPException(
             status_code=404,
-            detail=ErrorResponse(error="Task does not exists").model_dump(),
+            detail=ErrorResponse(error="Task does not exist").model_dump(),
         )
 
 
 async def task_exists(field: str, key, user_id):
-    if field == "_id":
-        task = await db.tasks.find_one({"_id": key, "owner": user_id})
-    else:
-        task = await db.tasks.find_one({field: key, "owner": user_id})
-    if task is None:
-        return None
-    return task_schema(task)
+    task = await db.tasks.find_one({field: key, "owner": user_id})
+    return task_schema(task) if task is not None else None

@@ -1,10 +1,5 @@
-// api.js - Single HTTP client for the Taskify API.
-// Adds the Bearer token, serializes the body, parses backend errors and,
-// on a 401, clears the session and tells the app to return to login.
-
 const TOKEN_KEY = "taskify_token";
 
-// Error with a readable message and HTTP status.
 export class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -13,7 +8,6 @@ export class ApiError extends Error {
   }
 }
 
-// Session
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -34,7 +28,6 @@ export function isAuthenticated() {
   return Boolean(getToken());
 }
 
-// Errors
 // Backend `detail` is either { error } or a Pydantic list of { msg, loc }.
 export function describeError(detail) {
   if (!detail) return "Ocurrió un error inesperado.";
@@ -59,7 +52,6 @@ export function describeError(detail) {
   return "Ocurrió un error inesperado.";
 }
 
-// Request
 // `body` can be an object (serialized to JSON), URLSearchParams or FormData.
 export async function apiFetch(path, options = {}) {
   const { method = "GET", body, headers = {}, ...rest } = options;
@@ -84,10 +76,12 @@ export async function apiFetch(path, options = {}) {
     throw new ApiError("No se pudo conectar con el servidor.", 0);
   }
 
-  // Invalid or expired token: clear the client session.
   if (response.status === 401) {
     clearSession();
-    window.dispatchEvent(new CustomEvent("taskify:unauthorized"));
+    // A failed login has no token; only expire an existing session.
+    if (token) {
+      window.dispatchEvent(new CustomEvent("taskify:unauthorized"));
+    }
   }
 
   if (response.status === 204) return null;

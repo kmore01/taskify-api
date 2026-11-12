@@ -1,5 +1,3 @@
-### Password hashing and JWT helpers ###
-
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
