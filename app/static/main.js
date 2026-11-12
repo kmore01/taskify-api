@@ -5,9 +5,9 @@ import {
   refreshCalendar,
   resetCalendar,
 } from "./calendar.js";
-import { dayKey, fromLocalInput, parseDate, toLocalInput } from "./dates.js";
+import { fromLocalInput, parseDate, toLocalInput } from "./dates.js";
 import {
-  listTasks,
+  listTasksRange,
   createTask,
   updateTask,
   deleteTask,
@@ -20,6 +20,8 @@ const state = {
   editingId: null,
   pendingDelete: null,
   sortBy: "deadline",
+  search: "",
+  category: "",
   view: "tasks",
   migratedDone: false,
   loadId: 0,
@@ -104,72 +106,6 @@ async function migrateDone() {
   }
 }
 
-function deadlineIsToday(task) {
-  if (!task.deadline) return false;
-  const deadline = parseDate(task.deadline);
-  const now = new Date();
-  return (
-    deadline.getFullYear() === now.getFullYear() &&
-    deadline.getMonth() === now.getMonth() &&
-    deadline.getDate() === now.getDate()
-  );
-}
-
-// Consecutive days (ending today or yesterday) with at least one completion.
-function computeStreak() {
-  const days = new Set();
-  for (const task of state.tasks) {
-    if (!task.completed_at) continue;
-    const date = parseDate(task.completed_at);
-    if (!Number.isNaN(date.getTime())) days.add(dayKey(date));
-  }
-  const cursor = new Date();
-  if (!days.has(dayKey(cursor))) {
-    cursor.setDate(cursor.getDate() - 1);
-    if (!days.has(dayKey(cursor))) return 0;
-  }
-  let streak = 0;
-  while (days.has(dayKey(cursor))) {
-    streak += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
-}
-
-function renderToday() {
-  const dueToday = state.tasks.filter(deadlineIsToday);
-  const doneToday = dueToday.filter((task) => task.completed);
-  const total = dueToday.length;
-  const done = doneToday.length;
-  const percent = total ? Math.round((done / total) * 100) : 0;
-
-  el("day-count").textContent = `${done}/${total}`;
-  el("day-progress-fill").style.width = `${percent}%`;
-
-  const bar = el("day-progress");
-  bar.setAttribute("aria-valuemax", String(total));
-  bar.setAttribute("aria-valuenow", String(done));
-
-  const note = el("today-note");
-  if (total === 0) {
-    note.textContent = "Sin vencimientos para hoy. Respira.";
-  } else if (done === total) {
-    note.textContent = "Todo lo de hoy, tachado. Crack.";
-  } else {
-    const left = total - done;
-    note.textContent = left === 1 ? "Te queda 1 para hoy." : `Te quedan ${left} para hoy.`;
-  }
-
-  const streak = computeStreak();
-  const streakNode = el("streak");
-  streakNode.querySelector("b").textContent = String(streak);
-  streakNode.setAttribute("aria-label", streak === 1 ? "Racha: 1 día" : `Racha: ${streak} días`);
-  streakNode.setAttribute(
-    "title",
-    streak === 1 ? "1 día seguido completando tareas" : `${streak} días seguidos completando tareas`
-  );
-}
-
 // Toggle a task's completion and react in place (no full re-render, so the
 // stamp animation is not wiped out).
 function setItemDone(item, isDone) {
@@ -198,7 +134,8 @@ async function toggleComplete(id, item) {
     } else {
       fx.sound.save(); // a soft tick, so un-completing never feels like an error
     }
-    renderToday();
+    // Let the stamp play, then move the item to its section.
+    setTimeout(renderTasks, updated.completed ? 900 : 0);
     refreshCalendar();
   } catch (error) {
     setStatus(el("app-status"), error.message, "error");
@@ -253,17 +190,55 @@ function makeIconButton(label, icon, action, id) {
   return button;
 }
 
+function matchesFilters(task) {
+  if (state.category && task.category !== state.category) return false;
+  const query = state.search.trim().toLocaleLowerCase("es");
+  if (!query) return true;
+  return `${task.title} ${task.description || ""} ${task.category || ""}`
+    .toLocaleLowerCase("es")
+    .includes(query);
+}
+
+function renderCategoryFilter() {
+  const select = el("filter-category");
+  const categories = [...new Set(state.tasks.map((t) => t.category).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, "es")
+  );
+  if (state.category && !categories.includes(state.category)) state.category = "";
+  select.replaceChildren(new Option("Todas las categorías", ""));
+  for (const name of categories) select.add(new Option(name, name));
+  select.value = state.category;
+  select.parentElement.hidden = categories.length === 0;
+}
+
 function renderTasks() {
   const list = el("task-list");
+  const doneList = el("done-list");
+  const doneSection = el("done-section");
   const empty = el("empty-state");
-  list.innerHTML = "";
+  renderCategoryFilter();
 
-  empty.hidden = state.tasks.length > 0;
-  list.hidden = state.tasks.length === 0;
+  const visible = sortTasks(state.tasks.filter(matchesFilters), state.sortBy);
+  const pending = visible.filter((t) => !t.completed);
+  const done = visible.filter((t) => t.completed);
 
-  const sorted = sortTasks(state.tasks, state.sortBy);
-  for (const task of sorted) {
-    list.appendChild(renderItem(task));
+  list.replaceChildren(...pending.map(renderItem));
+  doneList.replaceChildren(...done.map(renderItem));
+  el("done-count").textContent = String(done.length);
+  list.hidden = pending.length === 0;
+  doneSection.hidden = done.length === 0;
+
+  const filtering = Boolean(state.search.trim() || state.category);
+  empty.hidden = pending.length > 0;
+  if (state.tasks.length === 0) {
+    el("empty-title").textContent = "Aquí no hay nada que tachar.";
+    el("empty-text").textContent = "Crea tu primera tarea (atajo: C).";
+  } else if (filtering) {
+    el("empty-title").textContent = "Nada coincide con el filtro.";
+    el("empty-text").textContent = "Prueba con otra búsqueda o categoría.";
+  } else {
+    el("empty-title").textContent = "Todo tachado.";
+    el("empty-text").textContent = "No te queda nada pendiente.";
   }
 }
 
@@ -422,7 +397,6 @@ async function submitTask(event) {
     }
     closeForm();
     renderTasks();
-    renderToday();
     refreshCalendar();
     if (createdId) {
       fx.enter(document.querySelector(`.timeline__item[data-id="${createdId}"]`));
@@ -448,7 +422,6 @@ async function removeTask(id) {
   } finally {
     state.pendingDelete = null;
     renderTasks();
-    renderToday();
     refreshCalendar();
   }
 }
@@ -486,19 +459,17 @@ async function loadTasks() {
   const loadId = ++state.loadId;
   setStatus(status, "Cargando tareas…");
   try {
-    const tasks = await listTasks();
+    const tasks = await listTasksRange(); // no range: walks every page
     if (loadId !== state.loadId) return;
     state.tasks = tasks;
     await migrateDone();
     if (loadId !== state.loadId) return;
     renderTasks();
-    renderToday();
     setStatus(status, "");
   } catch (error) {
     if (loadId !== state.loadId) return;
     state.tasks = [];
     renderTasks();
-    renderToday();
     setStatus(status, error.message, "error");
   }
 }
@@ -653,6 +624,92 @@ function syncMuteButton() {
   button.setAttribute("aria-label", muted ? "Activar sonido" : "Silenciar");
 }
 
+// Task-view shortcuts; the calendar handles its own while it is visible.
+function onGlobalKeydown(event) {
+  if (el("view-app").hidden || state.view !== "tasks") return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
+  if (event.key === "c" || event.key === "C") {
+    event.preventDefault();
+    openForm();
+  } else if (event.key === "/") {
+    event.preventDefault();
+    el("task-search").focus();
+  }
+}
+
+// Browser reminders when a timed task starts. Notified ids live in memory, so
+// a reload never repeats past reminders (lastReminderCheck starts at load).
+// shortcut: only fires while the tab is open; a real push service would be needed otherwise.
+const NOTIFY_KEY = "taskify_notify";
+const notified = new Set();
+let lastReminderCheck = Date.now();
+
+function notificationsOn() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem(NOTIFY_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  return "Notification" in window && Notification.permission === "granted" && stored === "1";
+}
+
+function syncNotifyButton() {
+  const button = el("btn-notify");
+  if (!("Notification" in window)) {
+    button.hidden = true;
+    return;
+  }
+  const on = notificationsOn();
+  const label = on ? "Desactivar avisos" : "Activar avisos";
+  button.setAttribute("aria-pressed", String(on));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+async function toggleNotifications() {
+  const status = el("app-status");
+  const turnOn = !notificationsOn();
+  if (turnOn && Notification.permission !== "granted") {
+    const result = await Notification.requestPermission();
+    if (result !== "granted") {
+      setStatus(status, "El navegador ha bloqueado los avisos.", "error");
+      syncNotifyButton();
+      return;
+    }
+  }
+  try {
+    localStorage.setItem(NOTIFY_KEY, turnOn ? "1" : "0");
+  } catch {
+    /* storage unavailable: preference lasts this page only */
+  }
+  syncNotifyButton();
+  setStatus(
+    status,
+    turnOn ? "Te avisaré cuando empiece cada tarea." : "Avisos desactivados.",
+    "ok"
+  );
+}
+
+function checkReminders() {
+  const now = Date.now();
+  const since = lastReminderCheck;
+  lastReminderCheck = now;
+  if (!notificationsOn()) return;
+  for (const task of state.tasks) {
+    if (task.completed || task.all_day || notified.has(task.id)) continue;
+    const start = parseDate(task.date).getTime();
+    if (start > since && start <= now) {
+      notified.add(task.id);
+      new Notification(task.title, {
+        body: `Empieza ahora · vence el ${formatDate(task.deadline)}`,
+        tag: task.id,
+      });
+    }
+  }
+}
+
 function init() {
   el("tab-login").addEventListener("click", () => selectTab("login"));
   el("tab-register").addEventListener("click", () => selectTab("register"));
@@ -684,6 +741,21 @@ function init() {
   });
   el("task-form").addEventListener("submit", submitTask);
   el("task-list").addEventListener("click", onListClick);
+  el("done-list").addEventListener("click", onListClick);
+
+  el("task-search").addEventListener("input", (event) => {
+    state.search = event.target.value;
+    renderTasks();
+  });
+  el("filter-category").addEventListener("change", (event) => {
+    state.category = event.target.value;
+    renderTasks();
+  });
+  document.addEventListener("keydown", onGlobalKeydown);
+
+  syncNotifyButton();
+  el("btn-notify").addEventListener("click", toggleNotifications);
+  setInterval(checkReminders, 30 * 1000);
 
   const sortSelect = el("sort-by");
   sortSelect.addEventListener("change", () => {

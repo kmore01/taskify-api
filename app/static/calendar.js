@@ -1964,6 +1964,11 @@ function handleGlobalKeydown(event) {
     goToday();
     return;
   }
+  if (key === "c") {
+    event.preventDefault();
+    openTaskForm(null, { date: state.cursor });
+    return;
+  }
   if (key === "arrowleft") {
     event.preventDefault();
     navigate(-1);
