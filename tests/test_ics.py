@@ -25,6 +25,56 @@ def vevent(*lines):
     return "BEGIN:VEVENT\r\n" + "".join(f"{x}\r\n" for x in lines) + "END:VEVENT\r\n"
 
 
+class SeriesEndAndExceptionsTest(unittest.TestCase):
+    def test_until_and_exdates_survive_export_then_import(self):
+        src = ev(
+            repeat="weekly",
+            repeat_until=datetime(2026, 12, 31, 22, 59, 59),
+            exceptions=[datetime(2026, 11, 20, 10), datetime(2026, 11, 27, 10)],
+        )
+        text = build_ics([src])
+        self.assertIn("RRULE:FREQ=WEEKLY;UNTIL=20261231T225959Z", text)
+        self.assertIn("EXDATE:20261120T100000Z", text)
+        got = parse_ics(text)["events"][0]
+        self.assertEqual(got["repeat"], "weekly")
+        self.assertEqual(got["repeat_until"], src["repeat_until"])
+        self.assertEqual(got["exceptions"], src["exceptions"])
+
+    def test_all_day_series_uses_local_dates(self):
+        src = ev(
+            start=datetime(2026, 11, 12, 23),  # Nov 13 00:00 in Madrid
+            end=datetime(2026, 11, 13, 22, 59, 59, 999000),
+            all_day=True,
+            repeat="daily",
+            repeat_until=datetime(2026, 11, 20, 22, 59, 59, 999000),
+            exceptions=[datetime(2026, 11, 14, 23)],
+        )
+        text = build_ics([src], "Europe/Madrid")
+        self.assertIn("RRULE:FREQ=DAILY;UNTIL=20261120", text)
+        self.assertIn("EXDATE;VALUE=DATE:20261115", text)
+        got = parse_ics(text, "Europe/Madrid")["events"][0]
+        self.assertEqual(got["repeat_until"], src["repeat_until"])
+        self.assertEqual(got["exceptions"], src["exceptions"])
+
+    def test_comma_separated_and_repeated_exdate_lines_are_read(self):
+        text = wrap(
+            vevent(
+                "SUMMARY:Clase",
+                "DTSTART:20261113T100000Z",
+                "DTEND:20261113T110000Z",
+                "RRULE:FREQ=DAILY",
+                "EXDATE:20261114T100000Z,20261115T100000Z",
+                "EXDATE:20261116T100000Z",
+            )
+        )
+        got = parse_ics(text)["events"][0]
+        self.assertEqual([x.day for x in got["exceptions"]], [14, 15, 16])
+
+    def test_plain_events_carry_empty_defaults(self):
+        got = parse_ics(build_ics([ev()]))["events"][0]
+        self.assertEqual((got["repeat_until"], got["exceptions"], got["reminder"]), (None, [], 0))
+
+
 class RoundTripTest(unittest.TestCase):
     def test_all_fields_survive_export_then_import(self):
         src = ev(

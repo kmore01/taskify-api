@@ -149,6 +149,9 @@
           <button class="btn btn--primary btn--block" type="submit">
             Entrar
           </button>
+          <button id="btn-forgot" class="btn btn--ghost btn--sm" type="button">
+            ¿Olvidaste la contraseña?
+          </button>
         </form>
 
         <form
@@ -180,11 +183,52 @@
               autocomplete="new-password"
               required
               minlength="8"
+              maxlength="72"
             />
             <span class="field__hint">Mínimo 8 caracteres.</span>
           </label>
           <button class="btn btn--primary btn--block" type="submit">
             Crear cuenta
+          </button>
+        </form>
+
+        <form id="form-forgot" class="form" hidden novalidate>
+          <p class="auth__note">
+            Escribe el correo de tu cuenta y te enviaremos un enlace para elegir
+            una contraseña nueva.
+          </p>
+          <label class="field">
+            <span class="field__label">Correo</span>
+            <input type="email" name="email" autocomplete="email" required />
+          </label>
+          <button class="btn btn--primary btn--block" type="submit">
+            Enviar enlace
+          </button>
+          <button
+            id="btn-forgot-back"
+            class="btn btn--ghost btn--sm"
+            type="button"
+          >
+            Volver a entrar
+          </button>
+        </form>
+
+        <form id="form-reset" class="form" hidden novalidate>
+          <p class="auth__note">Elige una contraseña nueva para tu cuenta.</p>
+          <label class="field">
+            <span class="field__label">Contraseña nueva</span>
+            <input
+              type="password"
+              name="password"
+              autocomplete="new-password"
+              required
+              minlength="8"
+              maxlength="72"
+            />
+            <span class="field__hint">Mínimo 8 caracteres.</span>
+          </label>
+          <button class="btn btn--primary btn--block" type="submit">
+            Guardar contraseña
           </button>
         </form>
 
@@ -272,7 +316,14 @@
         </div>
 
         <div class="rail__user">
-          <span id="current-user" class="rail__name"></span>
+          <button
+            id="btn-account"
+            class="rail__name"
+            type="button"
+            title="Tu cuenta"
+          >
+            <span id="current-user"></span>
+          </button>
           <button
             id="btn-notify"
             class="btn btn--rail btn--icon"
@@ -373,8 +424,7 @@
               id="btn-new"
               class="btn btn--primary"
               type="button"
-              aria-expanded="false"
-              aria-controls="event-form"
+              aria-haspopup="dialog"
             >
               <svg
                 class="icon"
@@ -398,7 +448,7 @@
               id="event-search"
               class="sort-select search"
               type="search"
-              placeholder="Buscar (/)"
+              placeholder="Buscar"
               aria-label="Buscar eventos"
               autocomplete="off"
             />
@@ -433,72 +483,6 @@
               hidden
             />
           </div>
-
-          <form id="event-form" class="form form--event" hidden novalidate>
-            <input type="hidden" name="id" />
-
-            <label class="field field--wide">
-              <span class="field__label">Título</span>
-              <input name="title" required maxlength="120" />
-            </label>
-
-            <label class="field">
-              <span class="field__label">Inicio</span>
-              <input type="datetime-local" name="start" required />
-            </label>
-
-            <label class="field">
-              <span class="field__label">Fin</span>
-              <input type="datetime-local" name="end" required />
-            </label>
-
-            <div class="field">
-              <span class="field__label">Categoría</span>
-              <div id="event-category"></div>
-            </div>
-
-            <label class="field">
-              <span class="field__label">Repetir</span>
-              <span class="select">
-                <select name="repeat" class="sort-select">
-                  <option value="none" selected>No se repite</option>
-                  <option value="daily">Todos los días</option>
-                  <option value="weekly">Todas las semanas</option>
-                  <option value="monthly">Todos los meses</option>
-                  <option value="yearly">Todos los años</option>
-                </select>
-              </span>
-            </label>
-
-            <label class="field">
-              <span class="field__label">Ubicación (opcional)</span>
-              <input name="location" maxlength="120" />
-            </label>
-
-            <label class="field">
-              <span class="field__label">Enlace (opcional)</span>
-              <input
-                type="url"
-                name="link"
-                maxlength="500"
-                placeholder="https://"
-              />
-            </label>
-
-            <label class="field field--wide">
-              <span class="field__label">Descripción (opcional)</span>
-              <textarea name="description" rows="3"></textarea>
-            </label>
-
-            <div class="form__actions">
-              <button id="event-submit" class="btn btn--primary" type="submit">
-                Guardar
-              </button>
-              <button id="event-cancel" class="btn btn--ghost" type="button">
-                Cancelar
-              </button>
-            </div>
-          </form>
 
           <p
             id="app-status"
@@ -667,19 +651,107 @@
               </aside>
               <div id="cal-main" class="cal__main"></div>
             </div>
-
-            <div
-              id="cal-popover"
-              class="cal-popover"
-              role="dialog"
-              aria-modal="false"
-              aria-label="Detalle del día"
-              hidden
-            ></div>
           </div>
         </section>
       </main>
+
+      <!-- Shared by the calendar and the list: event form, details and day list. -->
+      <div
+        id="cal-popover"
+        class="cal-popover"
+        role="dialog"
+        aria-modal="false"
+        aria-label="Evento"
+        hidden
+      ></div>
     </div>
+
+    <dialog id="account-dialog" class="dialog" aria-labelledby="account-title">
+      <div class="dialog__head">
+        <div>
+          <h2 id="account-title" class="dialog__title">Tu cuenta</h2>
+          <p id="account-email" class="dialog__meta"></p>
+        </div>
+        <button
+          id="account-close"
+          class="btn btn--ghost btn--icon"
+          type="button"
+          aria-label="Cerrar"
+        >
+          <svg
+            class="icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="form-password" class="form" novalidate>
+        <h3 class="dialog__section">Cambiar contraseña</h3>
+        <label class="field">
+          <span class="field__label">Contraseña actual</span>
+          <input
+            type="password"
+            name="current"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <label class="field">
+          <span class="field__label">Contraseña nueva</span>
+          <input
+            type="password"
+            name="new"
+            autocomplete="new-password"
+            required
+            minlength="8"
+            maxlength="72"
+          />
+          <span class="field__hint">
+            Mínimo 8 caracteres. Cierra la sesión en tus otros dispositivos.
+          </span>
+        </label>
+        <div class="form__actions">
+          <button class="btn" type="submit">Cambiar contraseña</button>
+        </div>
+      </form>
+
+      <form id="form-delete-account" class="form" novalidate>
+        <h3 class="dialog__section">Eliminar cuenta</h3>
+        <p class="dialog__meta">
+          Se borran tu cuenta y todos tus eventos. No se puede deshacer.
+        </p>
+        <label class="field">
+          <span class="field__label">Contraseña</span>
+          <input
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <div class="form__actions">
+          <button class="btn btn--danger" type="submit">
+            Eliminar mi cuenta
+          </button>
+        </div>
+      </form>
+
+      <p
+        id="account-status"
+        class="status"
+        role="status"
+        aria-live="polite"
+      ></p>
+    </dialog>
 
     <script type="module" src="./main.js"></script>
   </body>

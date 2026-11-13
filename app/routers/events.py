@@ -9,12 +9,14 @@ from app.core.ics import MAX_EVENTS, build_ics, parse_ics
 from app.db.database import db
 from app.deps import get_current_user
 from app.models.error import ErrorResponse
-from app.models.event import Event, EventPage
+from app.models.event import Event, EventIn, EventPage
 from app.models.event_schema import event_schema, events_schema
 
 router = APIRouter(
     prefix="/events", tags=["events"], responses={404: {"message": "Not found"}}
 )
+
+MAX_ICS_BYTES = 1_000_000
 
 # Every route requires auth and each event stores its owner, so users only
 # see and modify their own events.
@@ -34,6 +36,15 @@ def to_utc_naive(value: datetime) -> datetime:
     if value.tzinfo is not None:
         return value.astimezone(timezone.utc).replace(tzinfo=None)
     return value
+
+
+def normalize_dates(data: dict) -> None:
+    """Store every datetime the client sent as naive UTC, like Mongo returns them."""
+    for key in ("start", "end", "repeat_until"):
+        if data.get(key) is not None:
+            data[key] = to_utc_naive(data[key])
+    if "exceptions" in data:
+        data["exceptions"] = [to_utc_naive(value) for value in data["exceptions"]]
 
 
 def validate_dates(start: datetime, end: datetime) -> None:
@@ -64,20 +75,10 @@ def parse_date_bound(value: str, *, end_of_day: bool) -> datetime:
 
 
 @router.post("/", response_model=Event, status_code=201)
-async def create_event(event: Event, user=Depends(get_current_user)):
-    if (
-        await db.events.find_one(
-            {"title": event.title, "owner": user["_id"]}, {"_id": 1}
-        )
-        is not None
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=ErrorResponse(error="Event already exists").model_dump(),
-        )
+async def create_event(event: EventIn, user=Depends(get_current_user)):
+    # Titles may repeat: two "Dentista" on different days are two events.
     event_dict = event.model_dump(exclude={"id", "completed"})
-    event_dict["start"] = to_utc_naive(event_dict["start"])
-    event_dict["end"] = to_utc_naive(event_dict["end"])
+    normalize_dates(event_dict)
     validate_dates(event_dict["start"], event_dict["end"])
     event_dict["owner"] = user["_id"]
     id = (await db.events.insert_one(event_dict)).inserted_id
@@ -149,12 +150,17 @@ async def import_events(
 ):
     # The body is the raw .ics text. Events already present (same title and
     # start) are skipped, so importing the same file twice is harmless.
-    raw = await request.body()
+    # Read with a cap: the size check must not need the whole upload in memory.
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_ICS_BYTES:
+            break
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = ""
-    if len(raw) > 1_000_000 or "BEGIN:VCALENDAR" not in text.upper():
+    if len(raw) > MAX_ICS_BYTES or "BEGIN:VCALENDAR" not in text.upper():
         raise HTTPException(
             status_code=400,
             detail=ErrorResponse(error="Not a valid .ics file").model_dump(),
@@ -202,7 +208,7 @@ async def get_event(id: str, user=Depends(get_current_user)):
 
 
 @router.put("/", response_model=Event)
-async def update_event(event: Event, user=Depends(get_current_user)):
+async def update_event(event: EventIn, user=Depends(get_current_user)):
     if not event.id:
         raise HTTPException(
             status_code=400,
@@ -219,9 +225,7 @@ async def update_event(event: Event, user=Depends(get_current_user)):
     # Only touch the fields the client sent so older clients do not wipe
     # calendar metadata (color, category...).
     changes = event.model_dump(exclude_unset=True, exclude={"id", "completed"})
-    for key in ("start", "end"):
-        if changes.get(key) is not None:
-            changes[key] = to_utc_naive(changes[key])
+    normalize_dates(changes)
 
     validate_dates(
         changes.get("start", existing["start"]),

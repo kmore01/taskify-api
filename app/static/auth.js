@@ -27,3 +27,38 @@ export function logout() {
 }
 
 export { getToken, isAuthenticated };
+
+// Swap a still-valid token for a fresh one so an active session never expires.
+export async function refreshSession() {
+  if (!isAuthenticated()) return;
+  try {
+    setToken((await apiFetch("/auth/refresh", { method: "POST" })).access_token);
+  } catch {
+    /* offline or expired: the next API call reports it */
+  }
+}
+
+// The server rejects every older token, so keep the new one it returns.
+export async function changePassword(currentPassword, newPassword) {
+  const data = await apiFetch("/auth/password", {
+    method: "POST",
+    body: { current_password: currentPassword, new_password: newPassword },
+  });
+  setToken(data.access_token);
+}
+
+export async function deleteAccount(password) {
+  await apiFetch("/auth/users/me", { method: "DELETE", body: { password } });
+  clearSession();
+}
+
+export function forgotPassword(email) {
+  return apiFetch("/auth/forgot", { method: "POST", body: { email } });
+}
+
+export function resetPassword(token, newPassword) {
+  return apiFetch("/auth/reset", {
+    method: "POST",
+    body: { token, new_password: newPassword },
+  });
+}

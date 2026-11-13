@@ -1,6 +1,6 @@
 import { ApiError, apiFetch, getToken } from "./api.js";
 import { sound } from "./fx.js";
-import { expand, seriesBody, occurrence, seriesId } from "./recurrence.js";
+import { expand, originalStart, seriesBody, occurrence, seriesId } from "./recurrence.js";
 
 
 export const isHttpUrl = (value) => /^https?:\/\//i.test(value || "");
@@ -70,11 +70,41 @@ export async function updateEvent(evt, { silent = false } = {}) {
   return series ? occurrence(updated, series.n) : updated;
 }
 
-// Delete by id. Backend replies 204 with no body.
-export async function deleteEvent(id) {
-  const result = await apiFetch(`/events/${seriesId(id)}`, { method: "DELETE" });
+// The stored document behind `evt`: the series when `evt` is an occurrence.
+const stored = (evt) => seriesBody(evt)?.body ?? evt;
+
+// Delete an event or a whole series. Resolves to an undo function that
+// creates it again (same data, new id).
+export async function deleteEvent(evt) {
+  const doc = stored(evt);
+  await apiFetch(`/events/${doc.id}`, { method: "DELETE" });
   sound.remove();
-  return result;
+  return () => apiFetch("/events/", { method: "POST", body: { ...doc, id: null } });
+}
+
+// "Only this one": remove a single occurrence from its series. Resolves to an
+// undo function that puts it back.
+export async function skipOccurrence(evt, { silent = false } = {}) {
+  const doc = stored(evt);
+  const before = doc.exceptions || [];
+  const put = (exceptions) =>
+    apiFetch("/events/", { method: "PUT", body: { ...doc, exceptions } });
+  await put([...before, originalStart(evt.id)]);
+  if (!silent) sound.remove();
+  return () => put(before);
+}
+
+// "Only this one" for edits: the occurrence leaves the series and becomes a
+// plain event carrying `changes`. Created first, so a failure in between
+// leaves a visible duplicate rather than a lost event.
+export async function detachOccurrence(evt, changes) {
+  const created = await apiFetch("/events/", {
+    method: "POST",
+    body: { ...changes, id: null, repeat: "none", repeat_until: null, exceptions: [] },
+  });
+  await skipOccurrence(evt, { silent: true });
+  sound.save();
+  return created;
 }
 
 // Distinct categories across all of the user's events (not just a date range).

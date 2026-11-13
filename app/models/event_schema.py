@@ -19,6 +19,9 @@ def event_schema(event) -> dict:
         "location": event.get("location"),
         "link": event.get("link"),
         "repeat": repeat,
+        "repeat_until": event.get("repeat_until"),
+        "exceptions": event.get("exceptions") or [],
+        "reminder": event.get("reminder") or 0,
     }
 
 

@@ -19,12 +19,15 @@ import {
 import {
   createEvent,
   deleteEvent,
+  detachOccurrence,
   listCategories,
   listEventsRange,
   isHttpUrl,
+  skipOccurrence,
   updateEvent,
 } from "./events.js";
 import { makeCategoryPicker } from "./category-picker.js";
+import { offerUndo } from "./undo.js";
 
 const DAY_NAMES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
 const WEEKDAY_NAMES = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
@@ -45,6 +48,16 @@ const REPEAT_OPTIONS = [
   ["weekly", "Todas las semanas"],
   ["monthly", "Todos los meses"],
   ["yearly", "Todos los años"],
+];
+
+// Minutes before the start; the bell in the rail turns reminders on or off.
+const REMINDER_OPTIONS = [
+  [0, "Al empezar"],
+  [5, "5 minutos antes"],
+  [15, "15 minutos antes"],
+  [30, "30 minutos antes"],
+  [60, "1 hora antes"],
+  [1440, "1 día antes"],
 ];
 
 const COLORS = [
@@ -1530,8 +1543,18 @@ function eventRangeLabel(evt) {
   return `${formatLongDate(start)} ${formatTime(start)} – ${formatLongDate(end)} ${formatTime(end)}`;
 }
 
-function notifyEventsChanged() {
-  document.dispatchEvent(new CustomEvent("planifier:events-changed"));
+// `createdId` lets the list animate the new ticket in.
+function notifyEventsChanged(createdId = null) {
+  document.dispatchEvent(
+    new CustomEvent("planifier:events-changed", { detail: { createdId } })
+  );
+}
+
+// The form and the delete buttons also serve the list while the calendar is idle.
+async function reloadAfterChange(createdId = null) {
+  if (state.active) await loadCalendar();
+  else state.dirty = true;
+  notifyEventsChanged(createdId);
 }
 
 function makeButton(text, className, onClick) {
@@ -1653,6 +1676,15 @@ function buildEventPayload(values) {
     }
   }
 
+  // The series runs through the whole chosen day.
+  const until =
+    values.repeat !== "none" && values.repeatUntil
+      ? endOfDay(dateFromKey(values.repeatUntil))
+      : null;
+  if (until && until < date) {
+    throw new Error("La serie no puede terminar antes de empezar.");
+  }
+
   return {
     id: values.id || null,
     title: values.title,
@@ -1665,10 +1697,14 @@ function buildEventPayload(values) {
     location: values.location || null,
     link: values.link || null,
     repeat: values.repeat,
+    repeat_until: until ? until.toISOString() : null,
+    reminder: values.reminder,
   };
 }
 
-function openEventForm(evt = null, defaults = {}) {
+// `defaults` for a new event: date, allDay, startTime, endTime, category; plus
+// `categories` when the caller knows them better than the calendar does.
+export function openEventForm(evt = null, defaults = {}) {
   const isEdit = Boolean(evt);
   const body = createPopover(isEdit ? "Editar evento" : "Nuevo evento");
   const form = document.createElement("form");
@@ -1723,6 +1759,7 @@ function openEventForm(evt = null, defaults = {}) {
 
   const descriptionInput = document.createElement("textarea");
   descriptionInput.rows = 3;
+  descriptionInput.maxLength = 5000;
   descriptionInput.value = evt ? evt.description || "" : "";
   descriptionInput.placeholder = "Descripción (opcional)";
 
@@ -1732,7 +1769,20 @@ function openEventForm(evt = null, defaults = {}) {
   linkInput.maxLength = 500;
   linkInput.placeholder = "https://";
 
-  const categoryPicker = makeCategoryPicker(evt ? evt.category || "" : "", state.categories);
+  const categoryPicker = makeCategoryPicker(
+    evt ? evt.category || "" : defaults.category || "",
+    defaults.categories || state.categories
+  );
+
+  const reminderSelect = document.createElement("select");
+  const reminder = (evt && evt.reminder) || 0;
+  for (const [value, label] of REMINDER_OPTIONS) {
+    reminderSelect.add(new Option(label, value));
+  }
+  if (!REMINDER_OPTIONS.some(([value]) => value === reminder)) {
+    reminderSelect.add(new Option(`${reminder} minutos antes`, reminder));
+  }
+  reminderSelect.value = String(reminder);
 
   const extra = document.createElement("div");
   extra.className = "cal-form__extra";
@@ -1742,7 +1792,8 @@ function openEventForm(evt = null, defaults = {}) {
     makeField("Descripción", descriptionInput),
     makeField("Ubicación", locationInput),
     makeField("Enlace", linkInput),
-    makeFieldBlock("Categoría", categoryPicker.node)
+    makeFieldBlock("Categoría", categoryPicker.node),
+    makeField("Aviso", reminderSelect)
   );
 
   const repeatSelect = document.createElement("select");
@@ -1750,6 +1801,28 @@ function openEventForm(evt = null, defaults = {}) {
     repeatSelect.add(new Option(label, value));
   }
   repeatSelect.value = (evt && evt.repeat) || "none";
+  const repeatField = makeField("Repetir", repeatSelect);
+  const untilInput = makeInput(
+    "date",
+    evt && evt.repeat_until ? dayKey(parseDate(evt.repeat_until)) : ""
+  );
+  const untilField = makeField("Repetir hasta (opcional)", untilInput);
+
+  // Editing one occurrence: change the whole series or only that day.
+  let scopeSelect = null;
+  if (evt && evt.series_id) {
+    scopeSelect = document.createElement("select");
+    scopeSelect.add(new Option("Toda la serie", "series"));
+    scopeSelect.add(new Option("Solo este evento", "one"));
+  }
+  const onlyThis = () => Boolean(scopeSelect) && scopeSelect.value === "one";
+  function syncRepeat() {
+    repeatField.hidden = onlyThis();
+    untilField.hidden = onlyThis() || repeatSelect.value === "none";
+  }
+  repeatSelect.addEventListener("change", syncRepeat);
+  if (scopeSelect) scopeSelect.addEventListener("change", syncRepeat);
+  syncRepeat();
 
   const colorPicker = makeColorPicker(evt ? evt.color : "");
 
@@ -1790,10 +1863,12 @@ function openEventForm(evt = null, defaults = {}) {
 
   form.append(
     makeField("Título", titleInput),
+    ...(scopeSelect ? [makeField("Aplicar los cambios a", scopeSelect)] : []),
     makeField("Inicio", startDateInput),
     allDayLabel,
     timeRow,
-    makeField("Repetir", repeatSelect),
+    repeatField,
+    untilField,
     makeFieldBlock("Color", colorPicker.node),
     extra,
     status,
@@ -1826,16 +1901,20 @@ function openEventForm(evt = null, defaults = {}) {
         color: colorPicker.getValue(),
         location: locationInput.value.trim(),
         link: linkInput.value.trim(),
-        repeat: repeatSelect.value,
+        repeat: onlyThis() ? "none" : repeatSelect.value,
+        repeatUntil: untilInput.value,
+        reminder: Number(reminderSelect.value),
       });
-      if (isEdit) {
+      let createdId = null;
+      if (onlyThis()) {
+        await detachOccurrence(evt, payload);
+      } else if (isEdit) {
         await updateEvent(payload);
       } else {
-        await createEvent(payload);
+        createdId = (await createEvent(payload)).id;
       }
       closePopover();
-      await loadCalendar();
-      notifyEventsChanged();
+      await reloadAfterChange(createdId);
     } catch (error) {
       setInlineStatus(status, error.message, "error");
     } finally {
@@ -1902,23 +1981,32 @@ function confirmDeleteEvent(evt, actions) {
   const ask = document.createElement("span");
   ask.className = "confirm__ask";
   ask.textContent = "¿Eliminar?";
-  const yes = makeButton("Sí, eliminar", "btn btn--danger btn--sm");
-  yes.addEventListener("click", async () => {
-    yes.disabled = true;
-    try {
-      await deleteEvent(evt.id);
-      closePopover();
-      await loadCalendar();
-      notifyEventsChanged();
-    } catch (error) {
-      setStatus(error.message, "error");
-      yes.disabled = false;
-    }
-  });
+  const choice = (text, action, done) => {
+    const button = makeButton(text, "btn btn--danger btn--sm");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const undo = await action(evt);
+        closePopover();
+        await reloadAfterChange();
+        offerUndo(el("cal-status"), done, undo, () => reloadAfterChange());
+      } catch (error) {
+        setStatus(error.message, "error");
+        button.disabled = false;
+      }
+    });
+    return button;
+  };
+  const buttons = evt.series_id
+    ? [
+        choice("Solo este", skipOccurrence, "Evento quitado de la serie."),
+        choice("Toda la serie", deleteEvent, "Serie eliminada."),
+      ]
+    : [choice("Sí, eliminar", deleteEvent, "Evento eliminado.")];
   const no = makeButton("Cancelar", "btn btn--ghost btn--sm", () =>
     openEventDetails(evt)
   );
-  actions.append(ask, yes, no);
+  actions.append(ask, ...buttons, no);
 }
 
 function openEventDetails(evt) {
@@ -2024,7 +2112,9 @@ function handleGlobalKeydown(event) {
     if (popover && !popover.hidden) closePopover();
     return;
   }
-  if (!state.active || event.metaKey || event.ctrlKey || event.altKey) return;
+  // The list has its own shortcuts while the calendar is hidden.
+  if (!state.active || el("view-calendar").hidden) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (
     event.target.closest?.(
       "input, textarea, select, [contenteditable='true']"

@@ -1,22 +1,33 @@
-import { login, logout, register, me, isAuthenticated } from "./auth.js";
+import {
+  changePassword,
+  deleteAccount,
+  forgotPassword,
+  isAuthenticated,
+  login,
+  logout,
+  me,
+  refreshSession,
+  register,
+  resetPassword,
+} from "./auth.js";
 import {
   activateCalendar,
   initCalendar,
+  openEventForm,
   refreshCalendar,
   resetCalendar,
 } from "./calendar.js";
-import { dayKey, formatTime, fromLocalInput, parseDate, toLocalInput } from "./dates.js";
+import { dayKey, formatTime, parseDate } from "./dates.js";
 import {
   listEventsRange,
   isHttpUrl,
   exportIcs,
   importIcs,
-  createEvent,
-  updateEvent,
   deleteEvent,
+  skipOccurrence,
 } from "./events.js";
 import * as fx from "./fx.js";
-import { makeCategoryPicker } from "./category-picker.js";
+import { offerUndo } from "./undo.js";
 
 const HIDDEN_KEY = "planifier_list_hidden";
 
@@ -40,13 +51,11 @@ function saveHiddenCategories() {
 
 const state = {
   events: [],
-  editingId: null,
   pendingDelete: null,
   sortBy: "end",
   search: "",
   hiddenCategories: loadHiddenCategories(),
   view: "events",
-  categoryPicker: null,
   loadId: 0,
 };
 
@@ -148,11 +157,6 @@ function eventCategories() {
   return [...new Set(state.events.map((t) => t.category).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "es")
   );
-}
-
-function mountCategoryPicker(current) {
-  state.categoryPicker = makeCategoryPicker(current, eventCategories());
-  el("event-category").replaceChildren(state.categoryPicker.node);
 }
 
 function renderCategoryFilter() {
@@ -303,9 +307,16 @@ function renderActions(evt) {
     const ask = document.createElement("span");
     ask.className = "confirm__ask";
     ask.textContent = "¿Eliminar?";
+    // An occurrence can leave its series on its own.
+    const choices = evt.series_id
+      ? [
+          makeButton("Solo este", "btn btn--danger btn--sm", "confirm-skip"),
+          makeButton("Toda la serie", "btn btn--danger btn--sm", "confirm-delete"),
+        ]
+      : [makeButton("Sí, eliminar", "btn btn--danger btn--sm", "confirm-delete")];
     wrap.append(
       ask,
-      makeButton("Sí, eliminar", "btn btn--danger btn--sm", "confirm-delete"),
+      ...choices,
       makeButton("Cancelar", "btn btn--ghost btn--sm", "cancel-delete")
     );
     return wrap;
@@ -318,120 +329,39 @@ function renderActions(evt) {
   return wrap;
 }
 
+// The list shares the calendar's event form, so both offer the same fields.
 function openForm(evt = null) {
-  const form = el("event-form");
-  const submit = el("event-submit");
-
-  form.hidden = false;
-  el("btn-new").setAttribute("aria-expanded", "true");
-  state.editingId = evt ? evt.id : null;
-  setStatus(el("app-status"), "");
-
-  if (evt) {
-    field(form, "id").value = evt.id;
-    field(form, "title").value = evt.title;
-    field(form, "description").value = evt.description || "";
-    mountCategoryPicker(evt.category || "");
-    field(form, "start").value = toLocalInput(evt.start);
-    field(form, "end").value = toLocalInput(evt.end);
-    field(form, "location").value = evt.location || "";
-    field(form, "link").value = evt.link || "";
-    field(form, "repeat").value = evt.repeat || "none";
-    submit.textContent = "Actualizar";
-  } else {
-    form.reset();
-    // Preselect the category when the filter leaves exactly one visible.
-    const shown = eventCategories().filter((name) => !state.hiddenCategories.has(name));
-    mountCategoryPicker(
-      shown.length === 1 && state.hiddenCategories.has("") ? shown[0] : ""
-    );
-    const now = new Date();
-    field(form, "start").value = toLocalInput(now.toISOString());
-    field(form, "end").value = toLocalInput(
-      new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString()
-    );
-    submit.textContent = "Guardar";
-  }
-
-  field(form, "title").focus();
+  const categories = eventCategories();
+  // Preselect the category when the filter leaves exactly one visible.
+  const shown = categories.filter((name) => !state.hiddenCategories.has(name));
+  const category = shown.length === 1 && state.hiddenCategories.has("") ? shown[0] : "";
+  openEventForm(evt, { categories, category });
 }
 
-function closeForm() {
-  const form = el("event-form");
-  form.hidden = true;
-  form.reset();
-  state.editingId = null;
-  el("btn-new").setAttribute("aria-expanded", "false");
-  el("event-submit").textContent = "Guardar";
-}
-
-function startEdit(id) {
+async function removeEvent(id, onlyThis = false) {
+  const status = el("app-status");
   const evt = state.events.find((t) => t.id === id);
-  if (evt) openForm(evt);
-}
-
-async function submitEvent(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const submit = el("event-submit");
-  const status = el("app-status");
-
-  if (!form.reportValidity()) return;
-
-  const wasEditing = Boolean(state.editingId);
-  const payload = {
-    id: state.editingId || null,
-    title: field(form, "title").value.trim(),
-    description: field(form, "description").value.trim(),
-    category: state.categoryPicker.getValue() || null,
-    start: fromLocalInput(field(form, "start").value),
-    end: fromLocalInput(field(form, "end").value),
-    location: field(form, "location").value.trim() || null,
-    link: field(form, "link").value.trim() || null,
-    repeat: field(form, "repeat").value,
-  };
-
-  submit.disabled = true;
-  setStatus(status, wasEditing ? "Actualizando…" : "Guardando…");
-
-  try {
-    let createdId = null;
-    if (wasEditing) {
-      const updated = await updateEvent(payload);
-      state.events = state.events.map((t) => (t.id === updated.id ? updated : t));
-    } else {
-      const created = await createEvent(payload); // plays the soft create pop
-      state.events.push(created);
-      createdId = created.id;
-    }
-    closeForm();
-    renderEvents();
-    refreshCalendar();
-    if (createdId) {
-      fx.enter(document.querySelector(`.timeline__item[data-id="${createdId}"]`));
-    }
-    setStatus(status, wasEditing ? "Evento actualizado." : "Guardado. Ya está en la lista.", "ok");
-  } catch (error) {
-    setStatus(status, error.message, "error");
-  } finally {
-    submit.disabled = false;
-  }
-}
-
-async function removeEvent(id) {
-  const status = el("app-status");
   const item = document.querySelector(`.timeline__item[data-id="${id}"]`);
-  try {
-    await deleteEvent(id); // plays the lower delete sound
-    state.events = state.events.filter((t) => t.id !== id);
-    if (item) await fx.leave(item);
-    setStatus(status, "Evento eliminado.", "ok");
-  } catch (error) {
-    setStatus(status, error.message, "error");
-  } finally {
-    state.pendingDelete = null;
-    renderEvents();
+  const reload = () => {
     refreshCalendar();
+    return loadEvents();
+  };
+  state.pendingDelete = null;
+  if (!evt) return;
+  try {
+    // Both play the lower delete sound and resolve to their own undo.
+    const undo = await (onlyThis ? skipOccurrence(evt) : deleteEvent(evt));
+    if (item) await fx.leave(item);
+    await reload(); // a series shows its next occurrence, if any
+    const message = onlyThis
+      ? "Evento quitado de la serie."
+      : evt.series_id
+        ? "Serie eliminada."
+        : "Evento eliminado.";
+    offerUndo(status, message, undo, reload);
+  } catch (error) {
+    renderEvents();
+    setStatus(status, error.message, "error");
   }
 }
 
@@ -444,7 +374,7 @@ function onListClick(event) {
 
   switch (button.dataset.action) {
     case "edit":
-      startEdit(id);
+      openForm(state.events.find((t) => t.id === id));
       break;
     case "delete":
       state.pendingDelete = id;
@@ -456,6 +386,9 @@ function onListClick(event) {
       break;
     case "confirm-delete":
       removeEvent(id);
+      break;
+    case "confirm-skip":
+      removeEvent(id, true);
       break;
   }
 }
@@ -496,13 +429,14 @@ async function onExport() {
 async function loadEvents() {
   const status = el("app-status");
   const loadId = ++state.loadId;
-  setStatus(status, "Cargando eventos…");
+  // Only the first load announces itself; refreshes swap the list silently.
+  if (state.events.length === 0) setStatus(status, "Cargando eventos…");
   try {
     const events = await listEventsRange(); // no range: walks every page
     if (loadId !== state.loadId) return;
     state.events = events;
     renderEvents();
-    setStatus(status, "");
+    if (status.textContent === "Cargando eventos…") setStatus(status, "");
   } catch (error) {
     if (loadId !== state.loadId) return;
     state.events = [];
@@ -514,6 +448,7 @@ async function loadEvents() {
 function showAuth(message = "") {
   el("view-app").hidden = true;
   el("view-auth").hidden = false;
+  el("account-dialog").close();
   setStatus(el("auth-status"), message, "error");
   el("form-login").elements.namedItem("username").focus();
 }
@@ -522,6 +457,7 @@ function showApp(user) {
   el("view-auth").hidden = true;
   el("view-app").hidden = false;
   el("current-user").textContent = (user && user.username) || "";
+  el("account-email").textContent = (user && user.email) || "";
   loadEvents();
 }
 
@@ -529,25 +465,21 @@ function resetAppState() {
   state.loadId += 1;
   state.events = [];
   state.pendingDelete = null;
-  state.editingId = null;
-  state.migratedDone = false;
-  closeForm();
   resetCalendar();
   selectView("events");
 }
 
+// Show one auth form. "login" and "register" are the tabs; "forgot" and
+// "reset" are reached from a link and leave both tabs unselected.
 function selectTab(name) {
-  const isLogin = name === "login";
-  const tabLogin = el("tab-login");
-  const tabRegister = el("tab-register");
-
-  tabLogin.setAttribute("aria-selected", String(isLogin));
-  tabRegister.setAttribute("aria-selected", String(!isLogin));
-  tabLogin.tabIndex = isLogin ? 0 : -1;
-  tabRegister.tabIndex = isLogin ? -1 : 0;
-
-  el("form-login").hidden = !isLogin;
-  el("form-register").hidden = isLogin;
+  for (const key of ["login", "register", "forgot", "reset"]) {
+    el(`form-${key}`).hidden = key !== name;
+  }
+  for (const key of ["login", "register"]) {
+    const tab = el(`tab-${key}`);
+    tab.setAttribute("aria-selected", String(key === name));
+    tab.tabIndex = key === name || (key === "login" && name !== "register") ? 0 : -1;
+  }
   setStatus(el("auth-status"), "");
 }
 
@@ -641,7 +573,75 @@ function onLogout() {
   showAuth();
 }
 
+// Runs `action` for a submitted form with the usual disabled/progress/error handling.
+async function submitForm(event, status, progress, action) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type=submit]");
+  if (!form.reportValidity()) return;
+  button.disabled = true;
+  setStatus(status, progress);
+  try {
+    await action(form);
+  } catch (error) {
+    setStatus(status, error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function onForgot(event) {
+  submitForm(event, el("auth-status"), "Enviando…", async (form) => {
+    await forgotPassword(field(form, "email").value.trim());
+    form.reset();
+    selectTab("login");
+    setStatus(
+      el("auth-status"),
+      "Si ese correo tiene cuenta, recibirás un enlace para elegir una contraseña nueva.",
+      "ok"
+    );
+  });
+}
+
+// The mailed link opens the app with ?reset=<token>.
+const resetToken = new URLSearchParams(location.search).get("reset");
+
+function onReset(event) {
+  submitForm(event, el("auth-status"), "Guardando…", async (form) => {
+    await resetPassword(resetToken, field(form, "password").value);
+    history.replaceState(null, "", location.pathname);
+    form.reset();
+    selectTab("login");
+    setStatus(el("auth-status"), "Contraseña cambiada. Ya puedes entrar.", "ok");
+  });
+}
+
+function onChangePassword(event) {
+  submitForm(event, el("account-status"), "Guardando…", async (form) => {
+    await changePassword(field(form, "current").value, field(form, "new").value);
+    form.reset();
+    setStatus(el("account-status"), "Contraseña cambiada.", "ok");
+  });
+}
+
+function onDeleteAccount(event) {
+  submitForm(event, el("account-status"), "Eliminando…", async (form) => {
+    await deleteAccount(field(form, "password").value);
+    form.reset();
+    resetAppState();
+    showAuth();
+    setStatus(el("auth-status"), "Cuenta eliminada.", "ok");
+  });
+}
+
 async function boot() {
+  if (resetToken) {
+    logout();
+    showAuth();
+    selectTab("reset");
+    field(el("form-reset"), "password").focus();
+    return;
+  }
   if (!isAuthenticated()) {
     showAuth();
     return;
@@ -649,6 +649,7 @@ async function boot() {
   try {
     const user = await me();
     showApp(user);
+    refreshSession();
   } catch {
     // A 401 already cleared the session and showed the login view.
     if (isAuthenticated()) showAuth("No se pudo verificar la sesión.");
@@ -676,8 +677,9 @@ function onGlobalKeydown(event) {
   }
 }
 
-// Browser reminders when a timed evt starts. Notified ids live in memory, so
-// a reload never repeats past reminders (lastReminderCheck starts at load).
+// Browser reminders `evt.reminder` minutes before an event starts (0: at the
+// start). Notified ids live in memory, so a reload never repeats past
+// reminders (lastReminderCheck starts at load).
 // shortcut: only fires while the tab is open; a real push service would be needed otherwise.
 const NOTIFY_KEY = "planifier_notify";
 const notified = new Set();
@@ -736,12 +738,16 @@ function checkReminders() {
   lastReminderCheck = now;
   if (!notificationsOn()) return;
   for (const evt of state.events) {
-    if (evt.completed || evt.all_day || notified.has(evt.id)) continue;
-    const start = parseDate(evt.start).getTime();
-    if (start > since && start <= now) {
+    const minutes = evt.reminder || 0;
+    // An all-day event has no start time worth announcing, only a day ahead.
+    if (evt.completed || (evt.all_day && !minutes) || notified.has(evt.id)) continue;
+    const due = parseDate(evt.start).getTime() - minutes * 60 * 1000;
+    if (due > since && due <= now) {
       notified.add(evt.id);
       new Notification(evt.title, {
-        body: `Empieza ahora · termina el ${formatDate(evt.end)}`,
+        body: minutes
+          ? `Empieza el ${formatDate(evt.start, evt.all_day)}`
+          : `Empieza ahora · termina el ${formatDate(evt.end)}`,
         tag: evt.id,
       });
     }
@@ -755,6 +761,23 @@ function init() {
   el("form-login").addEventListener("submit", onLogin);
   el("form-register").addEventListener("submit", onRegister);
   el("btn-logout").addEventListener("click", onLogout);
+  el("btn-forgot").addEventListener("click", () => {
+    selectTab("forgot");
+    field(el("form-forgot"), "email").focus();
+  });
+  el("btn-forgot-back").addEventListener("click", () => selectTab("login"));
+  el("form-forgot").addEventListener("submit", onForgot);
+  el("form-reset").addEventListener("submit", onReset);
+
+  el("btn-account").addEventListener("click", () => {
+    setStatus(el("account-status"), "");
+    el("account-dialog").showModal();
+  });
+  el("account-close").addEventListener("click", () => el("account-dialog").close());
+  el("form-password").addEventListener("submit", onChangePassword);
+  el("form-delete-account").addEventListener("submit", onDeleteAccount);
+  // Keep the session alive while the app stays open.
+  setInterval(refreshSession, 6 * 60 * 60 * 1000);
 
   el("tab-view-events").addEventListener("click", () => selectView("events"));
   el("tab-view-calendar").addEventListener("click", () => selectView("calendar"));
@@ -767,17 +790,7 @@ function init() {
     syncMuteButton();
   });
 
-  el("btn-new").addEventListener("click", () => {
-    if (el("event-form").hidden) openForm();
-    else closeForm();
-  });
-  el("event-cancel").addEventListener("click", closeForm);
-  el("event-form").addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    closeForm();
-    el("btn-new").focus();
-  });
-  el("event-form").addEventListener("submit", submitEvent);
+  el("btn-new").addEventListener("click", () => openForm());
   el("event-list").addEventListener("click", onListClick);
   el("done-list").addEventListener("click", onListClick);
 
@@ -813,8 +826,11 @@ function init() {
     resetAppState();
     showAuth("Tu sesión expiró. Vuelve a entrar.");
   });
-  document.addEventListener("planifier:events-changed", () => {
-    loadEvents();
+  document.addEventListener("planifier:events-changed", async (event) => {
+    await loadEvents();
+    // A new ticket drops in (a series is listed as "<id>@<n>").
+    const id = event.detail && event.detail.createdId;
+    if (id) fx.enter(document.querySelector(`.timeline__item[data-id^="${id}"]`));
   });
 
   boot();

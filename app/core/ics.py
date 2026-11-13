@@ -26,7 +26,7 @@ def zone(name: str | None, fallback: ZoneInfo | None = None) -> ZoneInfo:
 def _escape(text: str) -> str:
     return (
         text.replace("\\", "\\\\")
-        .replace(";", "\;")
+        .replace(";", "\\;")
         .replace(",", "\\,")
         .replace("\r\n", "\\n")
         .replace("\n", "\\n")
@@ -82,7 +82,18 @@ def build_ics(events: list[dict], tz: str = "UTC") -> str:
         if e.get("category"):
             lines.append(f"CATEGORIES:{_escape(e['category'])}")
         if e.get("repeat") in RRULE:
-            lines.append(f"RRULE:FREQ={RRULE[e['repeat']]}")
+            # All-day series use DATE values, so UNTIL and EXDATE must be dates too.
+            def stamp_of(value: datetime) -> str:
+                if e.get("all_day"):
+                    return f"{value.replace(tzinfo=UTC).astimezone(local):%Y%m%d}"
+                return _utc(value)
+
+            rule = f"RRULE:FREQ={RRULE[e['repeat']]}"
+            if e.get("repeat_until"):
+                rule += f";UNTIL={stamp_of(e['repeat_until'])}"
+            lines.append(rule)
+            kind = ";VALUE=DATE" if e.get("all_day") else ""
+            lines += [f"EXDATE{kind}:{stamp_of(x)}" for x in e.get("exceptions") or []]
         lines.append("END:VEVENT")
     lines.append("END:VCALENDAR")
     return "\r\n".join(_fold(line) for line in lines) + "\r\n"
@@ -141,12 +152,22 @@ def _event(props: dict, local: ZoneInfo):
     if end < start:
         raise ValueError("end before start")
 
-    repeat, simplified = "none", False
+    repeat, simplified, until, exceptions = "none", False, None, []
     if "RRULE" in props:
         parts = dict(p.split("=", 1) for p in props["RRULE"][1].split(";") if "=" in p)
-        extra = set(parts) - {"FREQ", "INTERVAL"}
+        extra = set(parts) - {"FREQ", "INTERVAL", "UNTIL"}
         if parts.get("FREQ") in FREQ and not extra and parts.get("INTERVAL", "1") == "1":
             repeat = FREQ[parts["FREQ"]]
+            if "UNTIL" in parts:
+                until, date_only = _moment(parts["UNTIL"], {}, local)
+                if date_only:  # a date includes that whole day
+                    until += timedelta(days=1, milliseconds=-1)
+            exceptions = [
+                _moment(value, params, local)[0]
+                for params, values in props.get("EXDATE", [])
+                for value in values.split(",")
+                if value.strip()
+            ]
         else:
             simplified = True  # interval, weekdays, count... are not supported
 
@@ -154,15 +175,18 @@ def _event(props: dict, local: ZoneInfo):
     category = _unescape(props.get("CATEGORIES", ("", ""))[1]).split(",")[0].strip()
     return {
         "title": title,
-        "description": _unescape(props.get("DESCRIPTION", ("", ""))[1]).strip(),
+        "description": _unescape(props.get("DESCRIPTION", ("", ""))[1]).strip()[:5000],
         "start": start,
         "end": end,
         "all_day": all_day,
         "color": None,
-        "category": category or None,
+        "category": category[:40] or None,
         "location": _unescape(props.get("LOCATION", ("", ""))[1]).strip()[:120] or None,
         "link": link[:500] if link.lower().startswith(("http://", "https://")) else None,
         "repeat": repeat,
+        "repeat_until": until,
+        "exceptions": exceptions,
+        "reminder": 0,
     }, simplified
 
 
@@ -188,6 +212,8 @@ def parse_ics(text: str, tz: str = "UTC") -> dict:
             except (KeyError, ValueError):
                 invalid += 1
             props = None
+        elif props is not None and name == "EXDATE":
+            props.setdefault(name, []).append((params, value))  # may repeat
         elif props is not None and name not in props:
             props[name] = (params, value)
     return {"events": events, "simplified": simplified, "invalid": invalid}

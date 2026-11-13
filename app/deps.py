@@ -22,7 +22,8 @@ async def get_user(username: str):
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
-    if payload is None:
+    # Single-purpose tokens (password reset) are not session tokens.
+    if payload is None or payload.get("purpose"):
         raise unauthorized("Invalid authentication token")
 
     username = payload.get("sub")
@@ -32,4 +33,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     user = await get_user(username)
     if user is None or user.get("disabled"):
         raise unauthorized("User not found or disabled")
+    # A password change bumps the version, which ends every older session.
+    if payload.get("ver", 0) != user.get("token_version", 0):
+        raise unauthorized("Session expired after a password change")
     return user

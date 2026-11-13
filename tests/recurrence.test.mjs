@@ -101,6 +101,59 @@ test("resizing an occurrence changes only the series end", () => {
   assert.equal(new Date(body.end) - new Date(body.start), 3 * 3600 * 1000);
 });
 
+test("repeat_until ends the series, that day included", () => {
+  const s = { ...series("daily", 2026, 11, 10), repeat_until: local(2026, 11, 12, 23, 59) };
+  assert.deepEqual(days(s, local(2026, 11, 1, 0), local(2026, 11, 30, 23)), [
+    "2026-11-10",
+    "2026-11-11",
+    "2026-11-12",
+  ]);
+});
+
+test("exceptions remove single occurrences, matched by local day", () => {
+  // The exception keeps the old 09:00 start although the series moved to 11:00.
+  const s = { ...series("daily", 2026, 11, 10, 11), exceptions: [local(2026, 11, 11, 9)] };
+  assert.deepEqual(days(s, local(2026, 11, 10, 0), local(2026, 11, 12, 23)), [
+    "2026-11-10",
+    "2026-11-12",
+  ]);
+});
+
+test("with no range a removed next occurrence is skipped", (t) => {
+  freeze();
+  t.after(() => mock.timers.reset());
+  const s = { ...series("weekly", 2026, 10, 1), exceptions: [local(2026, 11, 19)] };
+  assert.equal(ymd(expand(s)[0].start), "2026-11-26");
+});
+
+test("a finished series lists its last occurrence as completed", (t) => {
+  freeze();
+  t.after(() => mock.timers.reset());
+  const s = { ...series("weekly", 2026, 9, 3), repeat_until: local(2026, 9, 30, 23, 59) };
+  const out = expand(s);
+  assert.equal(out.length, 1);
+  assert.equal(ymd(out[0].start), "2026-9-24");
+  assert.equal(out[0].completed, true);
+});
+
+test("a series with every occurrence removed lists nothing", (t) => {
+  freeze();
+  t.after(() => mock.timers.reset());
+  const s = {
+    ...series("daily", 2026, 11, 20),
+    repeat_until: local(2026, 11, 21, 23, 59),
+    exceptions: [local(2026, 11, 20), local(2026, 11, 21)],
+  };
+  assert.deepEqual(expand(s), []);
+});
+
+test("moving the series moves its exceptions too", () => {
+  const s = { ...series("weekly", 2026, 11, 1), exceptions: [local(2026, 11, 8)] };
+  const occ = expand(s, local(2026, 11, 15, 0), local(2026, 11, 16, 23))[0]; // Nov 15
+  const { body } = seriesBody({ ...occ, start: local(2026, 11, 17), end: local(2026, 11, 17, 10) });
+  assert.deepEqual(body.exceptions.map(ymd), ["2026-11-10"]); // +2 days, like the series
+});
+
 test("seriesBody is null for a plain event", () => {
   assert.equal(seriesBody({ id: "plain" }), null);
 });

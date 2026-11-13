@@ -1,32 +1,25 @@
 # TODO
 
-Recomendaciones ordenadas por lo que más aportan a un calendario de eventos.
+Lo que queda pendiente, ordenado por lo que más aporta.
 
 ## Funcionalidad
 
-1. ~~Eventos recurrentes~~ (hecho: diario, semanal, mensual, anual). Pendiente: fecha de fin de la serie, excepciones y editar "solo este".
-2. **Recordatorios fiables.** Ahora los avisos solo funcionan con la pestaña abierta. Lo mínimo útil es un campo "avisar X minutos antes" por evento.
-3. **Ubicación y enlace** (campos opcionales).
-4. ~~Exportar e importar `.ics`~~ (hecho). Pendiente: repeticiones complejas (cada 2 semanas, días concretos) y recordatorios.
-5. **Búsqueda y filtro por categoría en la lista.** El calendario ya oculta categorías, pero la lista no filtra por ellas.
-
-## Limpieza pendiente
-
-6. ~~Renombrar `date`/`deadline` a `start`/`end` y quitar el completado manual~~ (hecho).
-7. **Migrar la colección `tasks` a `events`** (`db.tasks.renameCollection("events")`) y renombrar la carpeta del repo.
+1. **Avisos con la pestaña cerrada.** El aviso "X minutos antes" ya existe, pero solo salta con la app abierta. Hace falta push (service worker) o correo.
+2. **Repeticiones complejas** (cada 2 semanas, días concretos), también al importar `.ics`. Hoy se importan sin repetir.
+3. **"Este y los siguientes"** al editar o borrar una serie (ahora: toda la serie o solo este).
+4. **Recordatorios en `.ics`** (`VALARM`) al exportar e importar.
 
 ## Robustez
 
-8. **Sesión:** el token caduca a los 30 minutos y no hay renovación. Añadir refresh token o alargar la duración.
-9. **Tests mínimos de la API** con `pytest` y `httpx` (~10 tests: auth, CRUD, rango de fechas, "terminado = completado").
-10. **`requirements.txt` completo.** Faltan `fastapi`, `bcrypt` y otros. Fijar la versión de `bcrypt` (el aviso de passlib sugiere incompatibilidad).
-11. **Límite de intentos en login** y validación de contraseña mínima.
-12. **Permitir títulos duplicados:** hoy no se pueden repetir, y para eventos es una restricción poco natural.
+5. **Límite de intentos compartido.** El de login y el de "olvidé la contraseña" viven en memoria de un proceso; con varios workers hay que moverlos a Redis o Mongo.
+6. **Tests contra MongoDB real.** Los de la API usan una base en memoria (`tests/fake_db.py`).
+7. **Correo:** configurar `SMTP_HOST` y `APP_URL` en `.env`; sin ellos el enlace de recuperación solo se escribe en el log del servidor.
 
-## Mantenimiento
+## Limpieza
 
-13. Dividir `calendar.js` (más de 2.100 líneas) en vistas, arrastre y popovers, cuando haga falta.
+8. **Migrar la colección `tasks` a `events`** (`db.tasks.renameCollection("events")`) y renombrar la carpeta del repo.
+9. Dividir `calendar.js` en vistas, arrastre y popovers, cuando haga falta.
 
-## Prioridad sugerida
+## Hecho
 
-Recurrentes (1), `start`/`end` con migración (6) y tests (9).
+Eventos recurrentes con fecha de fin y excepciones, avisos con antelación, ubicación y enlace, `.ics`, búsqueda y filtro por categoría, `start`/`end`, sesión renovable, cambio y recuperación de contraseña, borrado de cuenta, deshacer al eliminar, títulos duplicados, tests de la API y `requirements.txt` completo.
