@@ -5,7 +5,6 @@ import {
   dayKey,
   diffDays,
   endOfDay,
-  endOfMonth,
   formatLongDate,
   formatMonthYear,
   formatTime,
@@ -26,6 +25,7 @@ import {
   setTaskCompleted,
   updateTask,
 } from "./tasks.js";
+import { makeCategoryPicker } from "./category-picker.js";
 
 const DAY_NAMES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
 const WEEKDAY_NAMES = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
@@ -176,8 +176,9 @@ function visibleRange() {
     const start = startOfDay(state.cursor);
     return { start, end: endOfDay(start) };
   }
-  if (state.view === "agenda") {
-    return { start: startOfMonth(state.cursor), end: endOfMonth(state.cursor) };
+  if (state.view === "year") {
+    const year = state.cursor.getFullYear();
+    return { start: new Date(year, 0, 1), end: endOfDay(new Date(year, 11, 31)) };
   }
   const start = monthGridStart();
   return { start, end: endOfDay(addDays(start, MONTH_ROWS * 7 - 1)) };
@@ -186,7 +187,9 @@ function visibleRange() {
 function renderTitle() {
   const title = el("cal-title");
   if (!title) return;
-  if (state.view === "month" || state.view === "agenda") {
+  if (state.view === "year") {
+    title.textContent = String(state.cursor.getFullYear());
+  } else if (state.view === "month") {
     title.textContent = formatMonthYear(state.cursor);
   } else if (state.view === "week") {
     const start = startOfWeek(state.cursor);
@@ -227,7 +230,7 @@ function renderCalendar() {
   } else if (state.view === "week" || state.view === "day") {
     renderTimeView();
   } else {
-    renderAgenda();
+    renderYear();
   }
   renderMini();
 }
@@ -1159,87 +1162,71 @@ function startCreatePointer(event, day, column) {
   trackPointer(onMove, onUp);
 }
 
-function renderAgenda() {
+// Twelve mini months; days with tasks get a dot and open the day view.
+function renderYear() {
   const main = el("cal-main");
-  main.innerHTML = "";
-  const rangeStart = startOfMonth(state.cursor);
-  const rangeEnd = endOfMonth(state.cursor);
-  const entries = [];
+  const year = state.cursor.getFullYear();
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = endOfDay(new Date(year, 11, 31));
 
+  const busy = new Set();
   for (const task of shownTasks()) {
     const { start, end } = taskWindow(task);
-    if (end < rangeStart || start > rangeEnd) continue;
-    entries.push({
-      task,
-      day: start < rangeStart ? rangeStart : startOfDay(start),
-    });
-  }
-
-  entries.sort((a, b) => {
-    const byDay = a.day - b.day;
-    if (byDay !== 0) return byDay;
-    return sortDayTasks(a.task, b.task);
-  });
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "cal-agenda";
-  if (entries.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "cal-placeholder";
-    empty.textContent = "No hay tareas en este periodo.";
-    main.appendChild(empty);
-    return;
-  }
-
-  let currentKey = null;
-  let list = null;
-  for (const entry of entries) {
-    const key = dayKey(entry.day);
-    if (key !== currentKey) {
-      currentKey = key;
-      const section = document.createElement("section");
-      section.className = "cal-agenda__day";
-      const heading = document.createElement("h3");
-      heading.className = "cal-agenda__date";
-      heading.textContent = formatLongDate(entry.day);
-      list = document.createElement("ul");
-      list.className = "cal-agenda__list";
-      section.append(heading, list);
-      wrapper.appendChild(section);
+    if (end < yearStart || start > yearEnd) continue;
+    let day = startOfDay(start < yearStart ? yearStart : start);
+    const last = end > yearEnd ? yearEnd : end;
+    while (day <= last) {
+      busy.add(dayKey(day));
+      day = addDays(day, 1);
     }
-
-    const task = entry.task;
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "cal-agenda__item";
-    if (task.completed) button.classList.add("cal-agenda__item--done");
-
-    const dot = document.createElement("span");
-    dot.className = "cal-agenda__dot";
-    if (task.color) dot.dataset.color = task.color;
-
-    const time = document.createElement("span");
-    time.className = "cal-agenda__time";
-    time.textContent = agendaTimeLabel(task);
-
-    const title = document.createElement("span");
-    title.className = "cal-agenda__title";
-    title.textContent = task.title;
-
-    button.append(dot, time, title);
-    button.addEventListener("click", () => openTaskDetails(task));
-    item.appendChild(button);
-    list.appendChild(item);
   }
 
-  main.appendChild(wrapper);
-}
+  const grid = document.createElement("div");
+  grid.className = "cal-year";
+  for (let month = 0; month < 12; month += 1) {
+    const first = new Date(year, month, 1);
+    const block = document.createElement("section");
+    block.className = "cal-year__month";
+    const title = document.createElement("h3");
+    title.className = "cal-mini__title cal-year__title";
+    title.textContent = first.toLocaleDateString("es-ES", { month: "long" });
 
-function agendaTimeLabel(task) {
-  if (task.all_day) return "Todo el día";
-  const { start, end } = taskWindow(task);
-  return `${formatTime(start)} – ${formatTime(end)}`;
+    const days = document.createElement("div");
+    days.className = "cal-mini__grid";
+    for (const name of DAY_NAMES) {
+      const weekday = document.createElement("span");
+      weekday.className = "cal-mini__weekday";
+      weekday.textContent = name.charAt(0);
+      days.appendChild(weekday);
+    }
+    const gridStart = startOfWeek(first);
+    for (let index = 0; index < MONTH_ROWS * 7; index += 1) {
+      const day = addDays(gridStart, index);
+      if (day.getMonth() !== month) {
+        days.appendChild(document.createElement("span"));
+        continue;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cal-mini__day";
+      button.textContent = String(day.getDate());
+      const hasTasks = busy.has(dayKey(day));
+      button.setAttribute(
+        "aria-label",
+        hasTasks ? `${formatLongDate(day)}, con tareas` : formatLongDate(day)
+      );
+      if (hasTasks) button.classList.add("cal-year__day--busy");
+      if (isToday(day)) button.classList.add("cal-mini__day--today");
+      button.addEventListener("click", () => {
+        state.cursor = startOfDay(day);
+        setView("day");
+      });
+      days.appendChild(button);
+    }
+    block.append(title, days);
+    grid.appendChild(block);
+  }
+  main.replaceChildren(grid);
 }
 
 function dayUnderPointer(x, y) {
@@ -1729,10 +1716,7 @@ function openTaskForm(task = null, defaults = {}) {
   descriptionInput.value = task ? task.description || "" : "";
   descriptionInput.placeholder = "Descripción (opcional)";
 
-  const categoryInput = makeInput("text", task && task.category ? task.category : "");
-  categoryInput.maxLength = 40;
-  categoryInput.placeholder = "Categoría (opcional)";
-  categoryInput.setAttribute("list", "category-options");
+  const categoryPicker = makeCategoryPicker(task ? task.category || "" : "", state.categories);
 
   const completedInput = makeInput("checkbox");
   completedInput.checked = Boolean(task && task.completed);
@@ -1746,7 +1730,7 @@ function openTaskForm(task = null, defaults = {}) {
   extra.append(
     makeField("Fin", endDateInput),
     makeField("Descripción", descriptionInput),
-    makeField("Categoría", categoryInput),
+    makeFieldBlock("Categoría", categoryPicker.node),
     completedLabel
   );
 
@@ -1815,7 +1799,7 @@ function openTaskForm(task = null, defaults = {}) {
         id: task ? task.id : null,
         title,
         description: descriptionInput.value.trim(),
-        category: categoryInput.value.trim(),
+        category: categoryPicker.getValue(),
         startDate: startDateInput.value,
         endDate: endDateInput.value || startDateInput.value,
         allDay: allDayInput.checked,
@@ -1980,7 +1964,9 @@ function openTaskDetails(task) {
 }
 
 function navigate(delta) {
-  if (state.view === "month" || state.view === "agenda") {
+  if (state.view === "year") {
+    state.cursor = addMonths(state.cursor, delta * 12);
+  } else if (state.view === "month") {
     state.cursor = addMonths(state.cursor, delta);
   } else if (state.view === "week") {
     state.cursor = addDays(state.cursor, delta * 7);
@@ -2035,7 +2021,7 @@ function handleGlobalKeydown(event) {
   }
 
   const key = event.key.toLowerCase();
-  const views = { m: "month", w: "week", d: "day", a: "agenda" };
+  const views = { d: "day", w: "week", m: "month", y: "year" };
   if (views[key]) {
     event.preventDefault();
     setView(views[key]);

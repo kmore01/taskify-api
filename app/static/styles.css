@@ -470,6 +470,11 @@ svg { display: block; }
 }
 .content__tools #btn-new { margin-left: auto; }
 
+.cat-picker { display: grid; gap: var(--space-2); }
+.cat-picker .select,
+.cat-picker select { width: 100%; }
+.cat-picker select { min-height: 42px; font-size: 0.9375rem; font-weight: 400; }
+
 .search {
   width: 13rem;
   max-width: 100%;
@@ -1352,59 +1357,25 @@ svg { display: block; }
   pointer-events: none;
 }
 
-/* Agenda view */
-.cal-agenda {
+/* Year view */
+.cal-year {
   display: grid;
-  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: var(--space-5) var(--space-4);
   padding: var(--space-4);
 }
-.cal-agenda__day { display: grid; gap: var(--space-2); }
-.cal-agenda__date {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-.cal-agenda__list {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.cal-agenda__item {
-  display: grid;
-  grid-template-columns: 8px 7rem minmax(0, 1fr);
-  gap: var(--space-2);
-  align-items: center;
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface);
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-}
-.cal-agenda__item:hover { background: var(--surface-muted); }
-.cal-agenda__item--done { opacity: 0.55; }
-.cal-agenda__item--done .cal-agenda__title { text-decoration: line-through; }
-.cal-agenda__dot {
-  width: 8px;
-  height: 8px;
+.cal-year__title { margin: 0 0 var(--space-2); }
+.cal-year__day--busy { color: var(--text); font-weight: 700; }
+.cal-year__day--busy::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: var(--event-border, var(--accent));
-}
-.cal-agenda__time {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-}
-.cal-agenda__title {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--accent);
+  transform: translateX(-50%);
 }
 
 .cal-placeholder {
@@ -1697,7 +1668,6 @@ svg { display: block; }
   .cal-daylist__item { grid-template-columns: 8px 5.5rem minmax(0, 1fr); }
   .cal__main { overflow-x: auto; }
   .cal-time--week { min-width: 620px; }
-  .cal-agenda__item { grid-template-columns: 8px 5.5rem minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .viewtabs { width: 100%; }

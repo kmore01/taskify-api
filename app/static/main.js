@@ -14,6 +14,7 @@ import {
   setTaskCompleted,
 } from "./tasks.js";
 import * as fx from "./fx.js";
+import { makeCategoryPicker } from "./category-picker.js";
 
 const state = {
   tasks: [],
@@ -24,6 +25,7 @@ const state = {
   category: "",
   view: "tasks",
   migratedDone: false,
+  categoryPicker: null,
   loadId: 0,
 };
 
@@ -199,17 +201,24 @@ function matchesFilters(task) {
     .includes(query);
 }
 
+function taskCategories() {
+  return [...new Set(state.tasks.map((t) => t.category).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "es")
+  );
+}
+
+function mountCategoryPicker(current) {
+  state.categoryPicker = makeCategoryPicker(current, taskCategories());
+  el("task-category").replaceChildren(state.categoryPicker.node);
+}
+
 function renderCategoryFilter() {
   const select = el("filter-category");
-  const categories = [...new Set(state.tasks.map((t) => t.category).filter(Boolean))].sort(
-    (a, b) => a.localeCompare(b, "es")
-  );
+  const categories = taskCategories();
   if (state.category && !categories.includes(state.category)) state.category = "";
   select.replaceChildren(new Option("Todas las categorías", ""));
   for (const name of categories) select.add(new Option(name, name));
   select.value = state.category;
-  // Shared autocomplete for both task forms (list and calendar).
-  el("category-options").replaceChildren(...categories.map((name) => new Option(name)));
   select.parentElement.hidden = categories.length === 0;
 }
 
@@ -337,12 +346,13 @@ function openForm(task = null) {
     field(form, "id").value = task.id;
     field(form, "title").value = task.title;
     field(form, "description").value = task.description || "";
-    field(form, "category").value = task.category || "";
+    mountCategoryPicker(task.category || "");
     field(form, "date").value = toLocalInput(task.date);
     field(form, "deadline").value = toLocalInput(task.deadline);
     submit.textContent = "Actualizar";
   } else {
     form.reset();
+    mountCategoryPicker(state.category); // preselect the active filter, if any
     const now = new Date();
     field(form, "date").value = toLocalInput(now.toISOString());
     field(form, "deadline").value = toLocalInput(
@@ -381,7 +391,7 @@ async function submitTask(event) {
     id: state.editingId || null,
     title: field(form, "title").value.trim(),
     description: field(form, "description").value.trim(),
-    category: field(form, "category").value.trim() || null,
+    category: state.categoryPicker.getValue() || null,
     date: fromLocalInput(field(form, "date").value),
     deadline: fromLocalInput(field(form, "deadline").value),
   };

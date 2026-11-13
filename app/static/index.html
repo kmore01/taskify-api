@@ -292,7 +292,7 @@
                 id="task-search"
                 class="sort-select search"
                 type="search"
-                placeholder="Buscar (/)"
+                placeholder="Buscar"
                 aria-label="Buscar tareas"
                 autocomplete="off"
               />
@@ -352,16 +352,10 @@
               <textarea name="description" rows="3"></textarea>
             </label>
 
-            <label class="field">
-              <span class="field__label">Categoría (opcional)</span>
-              <input
-                name="category"
-                maxlength="40"
-                list="category-options"
-                autocomplete="off"
-              />
-            </label>
-            <datalist id="category-options"></datalist>
+            <div class="field">
+              <span class="field__label">Categoría</span>
+              <div id="task-category"></div>
+            </div>
 
             <label class="field">
               <span class="field__label">Fecha</span>
@@ -508,25 +502,28 @@
                 <h2 id="cal-title" class="cal__title" aria-live="polite"></h2>
               </div>
               <div class="cal__tools">
-              <details id="cal-cats-menu" class="cal-cats-menu">
-                <summary class="btn btn--sm cal-cats-menu__button">
-                  Categorías
-                  <span id="cal-cats-count" class="cal-cats-menu__count"></span>
-                </summary>
-                <div id="cal-categories" class="cal-cats"></div>
-              </details>
-              <label class="select">
-                <select
-                  id="cal-view"
-                  class="sort-select"
-                  aria-label="Vista del calendario"
-                >
-                  <option value="month" selected>Mes</option>
-                  <option value="week">Semana</option>
-                  <option value="day">Día</option>
-                  <option value="agenda">Agenda</option>
-                </select>
-              </label>
+                <details id="cal-cats-menu" class="cal-cats-menu">
+                  <summary class="btn btn--sm cal-cats-menu__button">
+                    Categorías
+                    <span
+                      id="cal-cats-count"
+                      class="cal-cats-menu__count"
+                    ></span>
+                  </summary>
+                  <div id="cal-categories" class="cal-cats"></div>
+                </details>
+                <label class="select">
+                  <select
+                    id="cal-view"
+                    class="sort-select"
+                    aria-label="Vista del calendario"
+                  >
+                    <option value="day">Día</option>
+                    <option value="week">Semana</option>
+                    <option value="month" selected>Mes</option>
+                    <option value="year">Año</option>
+                  </select>
+                </label>
               </div>
             </div>
 
