@@ -7,24 +7,45 @@ import {
 } from "./calendar.js";
 import { fromLocalInput, parseDate, toLocalInput } from "./dates.js";
 import {
-  listTasksRange,
-  createTask,
-  updateTask,
-  deleteTask,
-  setTaskCompleted,
-} from "./tasks.js";
+  listEventsRange,
+  isHttpUrl,
+  exportIcs,
+  importIcs,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+} from "./events.js";
 import * as fx from "./fx.js";
 import { makeCategoryPicker } from "./category-picker.js";
 
+const HIDDEN_KEY = "planifier_list_hidden";
+
+// Like the calendar's menu: a per-browser preference, "" = no category.
+function loadHiddenCategories() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HIDDEN_KEY));
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenCategories() {
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...state.hiddenCategories]));
+  } catch {
+    /* storage unavailable: the choice lasts this page only */
+  }
+}
+
 const state = {
-  tasks: [],
+  events: [],
   editingId: null,
   pendingDelete: null,
-  sortBy: "deadline",
+  sortBy: "end",
   search: "",
-  category: "",
-  view: "tasks",
-  migratedDone: false,
+  hiddenCategories: loadHiddenCategories(),
+  view: "events",
   categoryPicker: null,
   loadId: 0,
 };
@@ -41,109 +62,25 @@ function formatDate(iso, allDay = false) {
   );
 }
 
-// Deadline proximity: "overdue", "soon" (<= 48 h) or "later".
+// Deadline proximity: "soon" (<= 48 h) or "later". Past events are already completed.
 function deadlineState(iso) {
   const diff = parseDate(iso).getTime() - Date.now();
   if (Number.isNaN(diff)) return "later";
-  if (diff < 0) return "overdue";
   if (diff <= 48 * 60 * 60 * 1000) return "soon";
   return "later";
 }
 
-const DEADLINE_LABEL = { overdue: "Vencida", soon: "", later: "" };
+const DEADLINE_LABEL = { soon: "", later: "" };
 
-// Pending tasks first; then by deadline or by title (accent-aware).
-function sortTasks(tasks, sortBy = "deadline") {
-  return [...tasks].sort((a, b) => {
+// Pending events first; then by deadline or by title (accent-aware).
+function sortEvents(events, sortBy = "end") {
+  return [...events].sort((a, b) => {
     if (Boolean(a.completed) !== Boolean(b.completed)) return a.completed ? 1 : -1;
     if (sortBy === "title") {
       return a.title.localeCompare(b.title, "es", { sensitivity: "base", numeric: true });
     }
-    return parseDate(a.deadline) - parseDate(b.deadline);
+    return parseDate(a.end) - parseDate(b.end);
   });
-}
-
-// Completion lives in the backend. The old localStorage map is migrated once.
-
-function doneStorageKey() {
-  const user = el("current-user").textContent || "anon";
-  return `taskify_done:${user.toLowerCase()}`;
-}
-
-function readDoneMap() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(doneStorageKey()));
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-// Best-effort, one-time move of old client-side completions to MongoDB.
-async function migrateDone() {
-  if (state.migratedDone) return;
-  state.migratedDone = true;
-  const doneMap = readDoneMap();
-  const ids = Object.keys(doneMap);
-  if (ids.length === 0) return;
-
-  const pending = state.tasks.filter((task) => doneMap[task.id] && !task.completed);
-  await Promise.allSettled(
-    pending.map(async (task) => {
-      const day = doneMap[task.id];
-      const completedAt = day
-        ? new Date(`${day}T12:00:00`).toISOString()
-        : new Date().toISOString();
-      const updated = await updateTask(
-        { ...task, completed: true, completed_at: completedAt },
-        { silent: true }
-      );
-      Object.assign(task, updated);
-    })
-  );
-  try {
-    localStorage.removeItem(doneStorageKey());
-  } catch {
-    /* storage unavailable: nothing else to do */
-  }
-}
-
-// Toggle a task's completion and react in place (no full re-render, so the
-// stamp animation is not wiped out).
-function setItemDone(item, isDone) {
-  if (!item) return;
-  item.classList.toggle("timeline__item--done", isDone);
-  const check = item.querySelector(".timeline__check");
-  if (check) {
-    check.setAttribute("aria-pressed", String(isDone));
-    check.setAttribute("aria-label", isDone ? "Marcar como no hecha" : "Marcar como hecha");
-  }
-}
-
-async function toggleComplete(id, item) {
-  const task = state.tasks.find((entry) => entry.id === id);
-  if (!task) return;
-  const next = !task.completed;
-  const check = item && item.querySelector(".timeline__check");
-  if (check) check.disabled = true;
-
-  try {
-    const updated = await setTaskCompleted(id, next);
-    Object.assign(task, updated);
-    setItemDone(item, updated.completed);
-    if (updated.completed) {
-      fx.complete(item); // stamp + confetti + sound: the one big moment
-    } else {
-      fx.sound.save(); // a soft tick, so un-completing never feels like an error
-    }
-    // Let the stamp play, then move the item to its section.
-    setTimeout(renderTasks, updated.completed ? 900 : 0);
-    refreshCalendar();
-  } catch (error) {
-    setStatus(el("app-status"), error.message, "error");
-  } finally {
-    if (check) check.disabled = false;
-  }
 }
 
 function setStatus(node, message = "", kind = "info") {
@@ -192,44 +129,76 @@ function makeIconButton(label, icon, action, id) {
   return button;
 }
 
-function matchesFilters(task) {
-  if (state.category && task.category !== state.category) return false;
+function matchesFilters(evt) {
+  if (state.hiddenCategories.has(evt.category || "")) return false;
   const query = state.search.trim().toLocaleLowerCase("es");
   if (!query) return true;
-  return `${task.title} ${task.description || ""} ${task.category || ""}`
+  return `${evt.title} ${evt.description || ""} ${evt.category || ""}`
     .toLocaleLowerCase("es")
     .includes(query);
 }
 
-function taskCategories() {
-  return [...new Set(state.tasks.map((t) => t.category).filter(Boolean))].sort((a, b) =>
+function eventCategories() {
+  return [...new Set(state.events.map((t) => t.category).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "es")
   );
 }
 
 function mountCategoryPicker(current) {
-  state.categoryPicker = makeCategoryPicker(current, taskCategories());
-  el("task-category").replaceChildren(state.categoryPicker.node);
+  state.categoryPicker = makeCategoryPicker(current, eventCategories());
+  el("event-category").replaceChildren(state.categoryPicker.node);
 }
 
 function renderCategoryFilter() {
-  const select = el("filter-category");
-  const categories = taskCategories();
-  if (state.category && !categories.includes(state.category)) state.category = "";
-  select.replaceChildren(new Option("Todas las categorías", ""));
-  for (const name of categories) select.add(new Option(name, name));
-  select.value = state.category;
-  select.parentElement.hidden = categories.length === 0;
+  const menu = el("list-cats-menu");
+  const categories = eventCategories();
+  menu.hidden = categories.length === 0;
+  const entries = [
+    ...categories.map((name) => ({ key: name, label: name })),
+    { key: "", label: "Sin categoría" },
+  ];
+
+  const title = document.createElement("p");
+  title.className = "cal-cats__title";
+  title.id = "list-cats-title";
+  title.textContent = "Categorías";
+  const list = document.createElement("ul");
+  list.className = "cal-cats__list";
+  list.setAttribute("aria-labelledby", "list-cats-title");
+  for (const entry of entries) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = !state.hiddenCategories.has(entry.key);
+    input.addEventListener("change", () => {
+      if (input.checked) state.hiddenCategories.delete(entry.key);
+      else state.hiddenCategories.add(entry.key);
+      saveHiddenCategories();
+      renderEvents();
+    });
+    const label = document.createElement("label");
+    label.className = "cal-cats__item";
+    const text = document.createElement("span");
+    text.textContent = entry.label;
+    if (!entry.key) text.className = "cal-cats__none";
+    label.append(input, text);
+    const item = document.createElement("li");
+    item.append(label);
+    list.append(item);
+  }
+  el("list-categories").replaceChildren(title, list);
+
+  const shown = entries.filter((entry) => !state.hiddenCategories.has(entry.key)).length;
+  el("list-cats-count").textContent = shown < entries.length ? `${shown}/${entries.length}` : "";
 }
 
-function renderTasks() {
-  const list = el("task-list");
+function renderEvents() {
+  const list = el("event-list");
   const doneList = el("done-list");
   const doneSection = el("done-section");
   const empty = el("empty-state");
   renderCategoryFilter();
 
-  const visible = sortTasks(state.tasks.filter(matchesFilters), state.sortBy);
+  const visible = sortEvents(state.events.filter(matchesFilters), state.sortBy);
   const pending = visible.filter((t) => !t.completed);
   const done = visible.filter((t) => t.completed);
 
@@ -239,37 +208,33 @@ function renderTasks() {
   list.hidden = pending.length === 0;
   doneSection.hidden = done.length === 0;
 
-  const filtering = Boolean(state.search.trim() || state.category);
+  const filtering = Boolean(state.search.trim() || state.hiddenCategories.size);
   empty.hidden = pending.length > 0;
-  if (state.tasks.length === 0) {
-    el("empty-title").textContent = "Aquí no hay nada que tachar.";
-    el("empty-text").textContent = "Crea tu primera tarea (atajo: C).";
+  if (state.events.length === 0) {
+    el("empty-title").textContent = "Aquí no hay eventos.";
+    el("empty-text").textContent = "Crea tu primer evento (atajo: C).";
   } else if (filtering) {
     el("empty-title").textContent = "Nada coincide con el filtro.";
     el("empty-text").textContent = "Prueba con otra búsqueda o categoría.";
   } else {
-    el("empty-title").textContent = "Todo tachado.";
-    el("empty-text").textContent = "No te queda nada pendiente.";
+    el("empty-title").textContent = "Todo al día.";
+    el("empty-text").textContent = "No tienes eventos pendientes.";
   }
 }
 
-function renderItem(task) {
-  const proximity = deadlineState(task.deadline);
+function renderItem(evt) {
+  const proximity = deadlineState(evt.end);
 
   const item = document.createElement("li");
   item.className = `timeline__item timeline__item--${proximity}`;
-  item.dataset.id = task.id;
-  const isDone = Boolean(task.completed);
+  item.dataset.id = evt.id;
+  const isDone = Boolean(evt.completed);
   if (isDone) item.classList.add("timeline__item--done");
-  if (state.pendingDelete === task.id) item.classList.add("timeline__item--confirming");
+  if (state.pendingDelete === evt.id) item.classList.add("timeline__item--confirming");
 
-  const check = document.createElement("button");
-  check.type = "button";
+  const check = document.createElement("span");
   check.className = "timeline__check";
-  check.dataset.action = "complete";
-  check.dataset.id = task.id;
-  check.setAttribute("aria-pressed", String(isDone));
-  check.setAttribute("aria-label", isDone ? "Marcar como no hecha" : "Marcar como hecha");
+  check.setAttribute("aria-hidden", "true");
 
   const node = document.createElement("span");
   node.className = "timeline__node";
@@ -277,7 +242,7 @@ function renderItem(task) {
 
   const title = document.createElement("h2");
   title.className = "timeline__title";
-  title.textContent = task.title;
+  title.textContent = evt.title;
 
   const meta = document.createElement("p");
   meta.className = "timeline__meta";
@@ -288,33 +253,42 @@ function renderItem(task) {
     badge.textContent = label;
     meta.append(badge);
   }
-  if (task.category) {
+  if (evt.category) {
     const chip = document.createElement("span");
     chip.className = "badge badge--category";
-    chip.dataset.color = task.color || "";
-    chip.textContent = task.category;
+    chip.dataset.color = evt.color || "";
+    chip.textContent = evt.category;
     meta.append(chip);
   }
+  if (evt.location) meta.append(document.createTextNode(`${evt.location} · `));
+  if (isHttpUrl(evt.link)) {
+    const a = document.createElement("a");
+    a.href = evt.link;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Enlace";
+    meta.append(a, document.createTextNode(" · "));
+  }
   meta.append(
-    document.createTextNode(`Vence el ${formatDate(task.deadline, task.all_day)}`)
+    document.createTextNode(`Termina el ${formatDate(evt.end, evt.all_day)}`)
   );
 
   item.append(check, node, title);
-  if (task.description) {
+  if (evt.description) {
     const desc = document.createElement("p");
     desc.className = "timeline__desc";
-    desc.textContent = task.description;
+    desc.textContent = evt.description;
     item.append(desc);
   }
-  item.append(meta, renderActions(task));
+  item.append(meta, renderActions(evt));
   return item;
 }
 
-function renderActions(task) {
+function renderActions(evt) {
   const wrap = document.createElement("div");
   wrap.className = "timeline__actions";
 
-  if (state.pendingDelete === task.id) {
+  if (state.pendingDelete === evt.id) {
     const ask = document.createElement("span");
     ask.className = "confirm__ask";
     ask.textContent = "¿Eliminar?";
@@ -327,35 +301,42 @@ function renderActions(task) {
   }
 
   wrap.append(
-    makeIconButton("Editar tarea", ICON_EDIT, "edit", task.id),
-    makeIconButton("Eliminar tarea", ICON_DELETE, "delete", task.id)
+    makeIconButton("Editar evento", ICON_EDIT, "edit", evt.id),
+    makeIconButton("Eliminar evento", ICON_DELETE, "delete", evt.id)
   );
   return wrap;
 }
 
-function openForm(task = null) {
-  const form = el("task-form");
-  const submit = el("task-submit");
+function openForm(evt = null) {
+  const form = el("event-form");
+  const submit = el("event-submit");
 
   form.hidden = false;
   el("btn-new").setAttribute("aria-expanded", "true");
-  state.editingId = task ? task.id : null;
+  state.editingId = evt ? evt.id : null;
   setStatus(el("app-status"), "");
 
-  if (task) {
-    field(form, "id").value = task.id;
-    field(form, "title").value = task.title;
-    field(form, "description").value = task.description || "";
-    mountCategoryPicker(task.category || "");
-    field(form, "date").value = toLocalInput(task.date);
-    field(form, "deadline").value = toLocalInput(task.deadline);
+  if (evt) {
+    field(form, "id").value = evt.id;
+    field(form, "title").value = evt.title;
+    field(form, "description").value = evt.description || "";
+    mountCategoryPicker(evt.category || "");
+    field(form, "start").value = toLocalInput(evt.start);
+    field(form, "end").value = toLocalInput(evt.end);
+    field(form, "location").value = evt.location || "";
+    field(form, "link").value = evt.link || "";
+    field(form, "repeat").value = evt.repeat || "none";
     submit.textContent = "Actualizar";
   } else {
     form.reset();
-    mountCategoryPicker(state.category); // preselect the active filter, if any
+    // Preselect the category when the filter leaves exactly one visible.
+    const shown = eventCategories().filter((name) => !state.hiddenCategories.has(name));
+    mountCategoryPicker(
+      shown.length === 1 && state.hiddenCategories.has("") ? shown[0] : ""
+    );
     const now = new Date();
-    field(form, "date").value = toLocalInput(now.toISOString());
-    field(form, "deadline").value = toLocalInput(
+    field(form, "start").value = toLocalInput(now.toISOString());
+    field(form, "end").value = toLocalInput(
       new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString()
     );
     submit.textContent = "Guardar";
@@ -365,23 +346,23 @@ function openForm(task = null) {
 }
 
 function closeForm() {
-  const form = el("task-form");
+  const form = el("event-form");
   form.hidden = true;
   form.reset();
   state.editingId = null;
   el("btn-new").setAttribute("aria-expanded", "false");
-  el("task-submit").textContent = "Guardar";
+  el("event-submit").textContent = "Guardar";
 }
 
 function startEdit(id) {
-  const task = state.tasks.find((t) => t.id === id);
-  if (task) openForm(task);
+  const evt = state.events.find((t) => t.id === id);
+  if (evt) openForm(evt);
 }
 
-async function submitTask(event) {
+async function submitEvent(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const submit = el("task-submit");
+  const submit = el("event-submit");
   const status = el("app-status");
 
   if (!form.reportValidity()) return;
@@ -392,8 +373,11 @@ async function submitTask(event) {
     title: field(form, "title").value.trim(),
     description: field(form, "description").value.trim(),
     category: state.categoryPicker.getValue() || null,
-    date: fromLocalInput(field(form, "date").value),
-    deadline: fromLocalInput(field(form, "deadline").value),
+    start: fromLocalInput(field(form, "start").value),
+    end: fromLocalInput(field(form, "end").value),
+    location: field(form, "location").value.trim() || null,
+    link: field(form, "link").value.trim() || null,
+    repeat: field(form, "repeat").value,
   };
 
   submit.disabled = true;
@@ -402,20 +386,20 @@ async function submitTask(event) {
   try {
     let createdId = null;
     if (wasEditing) {
-      const updated = await updateTask(payload);
-      state.tasks = state.tasks.map((t) => (t.id === updated.id ? updated : t));
+      const updated = await updateEvent(payload);
+      state.events = state.events.map((t) => (t.id === updated.id ? updated : t));
     } else {
-      const created = await createTask(payload); // plays the soft create pop
-      state.tasks.push(created);
+      const created = await createEvent(payload); // plays the soft create pop
+      state.events.push(created);
       createdId = created.id;
     }
     closeForm();
-    renderTasks();
+    renderEvents();
     refreshCalendar();
     if (createdId) {
       fx.enter(document.querySelector(`.timeline__item[data-id="${createdId}"]`));
     }
-    setStatus(status, wasEditing ? "Tarea actualizada." : "Guardada. Ya está en la lista.", "ok");
+    setStatus(status, wasEditing ? "Evento actualizado." : "Guardado. Ya está en la lista.", "ok");
   } catch (error) {
     setStatus(status, error.message, "error");
   } finally {
@@ -423,19 +407,19 @@ async function submitTask(event) {
   }
 }
 
-async function removeTask(id) {
+async function removeEvent(id) {
   const status = el("app-status");
   const item = document.querySelector(`.timeline__item[data-id="${id}"]`);
   try {
-    await deleteTask(id); // plays the lower delete sound
-    state.tasks = state.tasks.filter((t) => t.id !== id);
+    await deleteEvent(id); // plays the lower delete sound
+    state.events = state.events.filter((t) => t.id !== id);
     if (item) await fx.leave(item);
-    setStatus(status, "Tarea eliminada.", "ok");
+    setStatus(status, "Evento eliminado.", "ok");
   } catch (error) {
     setStatus(status, error.message, "error");
   } finally {
     state.pendingDelete = null;
-    renderTasks();
+    renderEvents();
     refreshCalendar();
   }
 }
@@ -451,39 +435,67 @@ function onListClick(event) {
     case "edit":
       startEdit(id);
       break;
-    case "complete":
-      toggleComplete(id, item);
-      break;
     case "delete":
       state.pendingDelete = id;
-      renderTasks();
+      renderEvents();
       break;
     case "cancel-delete":
       state.pendingDelete = null;
-      renderTasks();
+      renderEvents();
       break;
     case "confirm-delete":
-      removeTask(id);
+      removeEvent(id);
       break;
   }
 }
 
-async function loadTasks() {
+async function onImportFile(event) {
+  const input = event.currentTarget;
+  const [file] = input.files;
+  input.value = ""; // allow picking the same file again
+  if (!file) return;
+  const status = el("app-status");
+  setStatus(status, "Importando…");
+  try {
+    const r = await importIcs(file);
+    const notes = [];
+    if (r.skipped) notes.push(`${r.skipped} ya existían`);
+    if (r.simplified) notes.push(`${r.simplified} con repetición no soportada se importaron sin repetir`);
+    if (r.invalid) notes.push(`${r.invalid} no válidos`);
+    setStatus(
+      status,
+      `Importados ${r.imported} eventos${notes.length ? ` (${notes.join("; ")})` : ""}.`,
+      "ok"
+    );
+    await loadEvents();
+    refreshCalendar();
+  } catch (error) {
+    setStatus(status, error.message, "error");
+  }
+}
+
+async function onExport() {
+  try {
+    await exportIcs();
+  } catch (error) {
+    setStatus(el("app-status"), error.message, "error");
+  }
+}
+
+async function loadEvents() {
   const status = el("app-status");
   const loadId = ++state.loadId;
-  setStatus(status, "Cargando tareas…");
+  setStatus(status, "Cargando eventos…");
   try {
-    const tasks = await listTasksRange(); // no range: walks every page
+    const events = await listEventsRange(); // no range: walks every page
     if (loadId !== state.loadId) return;
-    state.tasks = tasks;
-    await migrateDone();
-    if (loadId !== state.loadId) return;
-    renderTasks();
+    state.events = events;
+    renderEvents();
     setStatus(status, "");
   } catch (error) {
     if (loadId !== state.loadId) return;
-    state.tasks = [];
-    renderTasks();
+    state.events = [];
+    renderEvents();
     setStatus(status, error.message, "error");
   }
 }
@@ -499,18 +511,18 @@ function showApp(user) {
   el("view-auth").hidden = true;
   el("view-app").hidden = false;
   el("current-user").textContent = (user && user.username) || "";
-  loadTasks();
+  loadEvents();
 }
 
 function resetAppState() {
   state.loadId += 1;
-  state.tasks = [];
+  state.events = [];
   state.pendingDelete = null;
   state.editingId = null;
   state.migratedDone = false;
   closeForm();
   resetCalendar();
-  selectView("tasks");
+  selectView("events");
 }
 
 function selectTab(name) {
@@ -538,27 +550,27 @@ function onTabsKeydown(event) {
 
 function selectView(name) {
   state.view = name;
-  const isTasks = name === "tasks";
-  const tasksTab = el("tab-view-tasks");
+  const isEvents = name === "events";
+  const eventsTab = el("tab-view-events");
   const calendarTab = el("tab-view-calendar");
 
-  el("view-tasks").hidden = !isTasks;
-  el("view-calendar").hidden = isTasks;
-  tasksTab.setAttribute("aria-selected", String(isTasks));
-  calendarTab.setAttribute("aria-selected", String(!isTasks));
-  tasksTab.tabIndex = isTasks ? 0 : -1;
-  calendarTab.tabIndex = isTasks ? -1 : 0;
-  el("main").classList.toggle("content--wide", !isTasks);
+  el("view-events").hidden = !isEvents;
+  el("view-calendar").hidden = isEvents;
+  eventsTab.setAttribute("aria-selected", String(isEvents));
+  calendarTab.setAttribute("aria-selected", String(!isEvents));
+  eventsTab.tabIndex = isEvents ? 0 : -1;
+  calendarTab.tabIndex = isEvents ? -1 : 0;
+  el("main").classList.toggle("content--wide", !isEvents);
 
-  if (!isTasks) activateCalendar();
+  if (!isEvents) activateCalendar();
 }
 
 function onViewTabsKeydown(event) {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
   event.preventDefault();
-  const next = state.view === "tasks" ? "calendar" : "tasks";
+  const next = state.view === "events" ? "calendar" : "events";
   selectView(next);
-  el(next === "tasks" ? "tab-view-tasks" : "tab-view-calendar").focus();
+  el(next === "events" ? "tab-view-events" : "tab-view-calendar").focus();
 }
 
 async function onLogin(event) {
@@ -638,9 +650,9 @@ function syncMuteButton() {
   button.setAttribute("aria-label", muted ? "Activar sonido" : "Silenciar");
 }
 
-// Task-view shortcuts; the calendar handles its own while it is visible.
+// Event-view shortcuts; the calendar handles its own while it is visible.
 function onGlobalKeydown(event) {
-  if (el("view-app").hidden || state.view !== "tasks") return;
+  if (el("view-app").hidden || state.view !== "events") return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
   if (event.key === "c" || event.key === "C") {
@@ -648,14 +660,14 @@ function onGlobalKeydown(event) {
     openForm();
   } else if (event.key === "/") {
     event.preventDefault();
-    el("task-search").focus();
+    el("event-search").focus();
   }
 }
 
-// Browser reminders when a timed task starts. Notified ids live in memory, so
+// Browser reminders when a timed evt starts. Notified ids live in memory, so
 // a reload never repeats past reminders (lastReminderCheck starts at load).
 // shortcut: only fires while the tab is open; a real push service would be needed otherwise.
-const NOTIFY_KEY = "taskify_notify";
+const NOTIFY_KEY = "planifier_notify";
 const notified = new Set();
 let lastReminderCheck = Date.now();
 
@@ -701,7 +713,7 @@ async function toggleNotifications() {
   syncNotifyButton();
   setStatus(
     status,
-    turnOn ? "Te avisaré cuando empiece cada tarea." : "Avisos desactivados.",
+    turnOn ? "Te avisaré cuando empiece cada evento." : "Avisos desactivados.",
     "ok"
   );
 }
@@ -711,14 +723,14 @@ function checkReminders() {
   const since = lastReminderCheck;
   lastReminderCheck = now;
   if (!notificationsOn()) return;
-  for (const task of state.tasks) {
-    if (task.completed || task.all_day || notified.has(task.id)) continue;
-    const start = parseDate(task.date).getTime();
+  for (const evt of state.events) {
+    if (evt.completed || evt.all_day || notified.has(evt.id)) continue;
+    const start = parseDate(evt.start).getTime();
     if (start > since && start <= now) {
-      notified.add(task.id);
-      new Notification(task.title, {
-        body: `Empieza ahora · vence el ${formatDate(task.deadline)}`,
-        tag: task.id,
+      notified.add(evt.id);
+      new Notification(evt.title, {
+        body: `Empieza ahora · termina el ${formatDate(evt.end)}`,
+        tag: evt.id,
       });
     }
   }
@@ -732,7 +744,7 @@ function init() {
   el("form-register").addEventListener("submit", onRegister);
   el("btn-logout").addEventListener("click", onLogout);
 
-  el("tab-view-tasks").addEventListener("click", () => selectView("tasks"));
+  el("tab-view-events").addEventListener("click", () => selectView("events"));
   el("tab-view-calendar").addEventListener("click", () => selectView("calendar"));
   document.querySelector(".viewtabs").addEventListener("keydown", onViewTabsKeydown);
   initCalendar();
@@ -744,45 +756,53 @@ function init() {
   });
 
   el("btn-new").addEventListener("click", () => {
-    if (el("task-form").hidden) openForm();
+    if (el("event-form").hidden) openForm();
     else closeForm();
   });
-  el("task-cancel").addEventListener("click", closeForm);
-  el("task-form").addEventListener("keydown", (event) => {
+  el("event-cancel").addEventListener("click", closeForm);
+  el("event-form").addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     closeForm();
     el("btn-new").focus();
   });
-  el("task-form").addEventListener("submit", submitTask);
-  el("task-list").addEventListener("click", onListClick);
+  el("event-form").addEventListener("submit", submitEvent);
+  el("event-list").addEventListener("click", onListClick);
   el("done-list").addEventListener("click", onListClick);
 
-  el("task-search").addEventListener("input", (event) => {
+  el("event-search").addEventListener("input", (event) => {
     state.search = event.target.value;
-    renderTasks();
+    renderEvents();
   });
-  el("filter-category").addEventListener("change", (event) => {
-    state.category = event.target.value;
-    renderTasks();
+  document.addEventListener("pointerdown", (event) => {
+    const menu = el("list-cats-menu");
+    if (menu.open && !menu.contains(event.target)) menu.open = false;
+  });
+  el("list-cats-menu").addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.currentTarget.open = false;
+    event.currentTarget.querySelector("summary").focus();
   });
   document.addEventListener("keydown", onGlobalKeydown);
 
   syncNotifyButton();
   el("btn-notify").addEventListener("click", toggleNotifications);
+  el("btn-export").addEventListener("click", onExport);
+  el("btn-import").addEventListener("click", () => el("import-file").click());
+  el("import-file").addEventListener("change", onImportFile);
   setInterval(checkReminders, 30 * 1000);
 
   const sortSelect = el("sort-by");
   sortSelect.addEventListener("change", () => {
     state.sortBy = sortSelect.value;
-    renderTasks();
+    renderEvents();
   });
 
-  window.addEventListener("taskify:unauthorized", () => {
+  window.addEventListener("planifier:unauthorized", () => {
     resetAppState();
     showAuth("Tu sesión expiró. Vuelve a entrar.");
   });
-  document.addEventListener("taskify:tasks-changed", () => {
-    loadTasks();
+  document.addEventListener("planifier:events-changed", () => {
+    loadEvents();
   });
 
   boot();

@@ -2,21 +2,22 @@ from datetime import date, datetime, time, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pymongo import ReturnDocument
 
+from app.core.ics import MAX_EVENTS, build_ics, parse_ics
 from app.db.database import db
 from app.deps import get_current_user
 from app.models.error import ErrorResponse
-from app.models.task import Task, TaskCompletion, TaskPage
-from app.models.task_schema import task_schema, tasks_schema
+from app.models.event import Event, EventPage
+from app.models.event_schema import event_schema, events_schema
 
 router = APIRouter(
-    prefix="/tasks", tags=["tasks"], responses={404: {"message": "Not found"}}
+    prefix="/events", tags=["events"], responses={404: {"message": "Not found"}}
 )
 
-# Every route requires auth and each task stores its owner, so users only
-# see and modify their own tasks.
+# Every route requires auth and each event stores its owner, so users only
+# see and modify their own events.
 
 
 def parse_object_id(value: str) -> ObjectId:
@@ -25,7 +26,7 @@ def parse_object_id(value: str) -> ObjectId:
     except (InvalidId, TypeError):
         raise HTTPException(
             status_code=400,
-            detail=ErrorResponse(error="Invalid task ID format").model_dump(),
+            detail=ErrorResponse(error="Invalid event ID format").model_dump(),
         )
 
 
@@ -33,10 +34,6 @@ def to_utc_naive(value: datetime) -> datetime:
     if value.tzinfo is not None:
         return value.astimezone(timezone.utc).replace(tzinfo=None)
     return value
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def validate_dates(start: datetime, end: datetime) -> None:
@@ -66,34 +63,29 @@ def parse_date_bound(value: str, *, end_of_day: bool) -> datetime:
     return to_utc_naive(parsed)
 
 
-@router.post("/", response_model=Task, status_code=201)
-async def create_task(task: Task, user=Depends(get_current_user)):
+@router.post("/", response_model=Event, status_code=201)
+async def create_event(event: Event, user=Depends(get_current_user)):
     if (
-        await db.tasks.find_one(
-            {"title": task.title, "owner": user["_id"]}, {"_id": 1}
+        await db.events.find_one(
+            {"title": event.title, "owner": user["_id"]}, {"_id": 1}
         )
         is not None
     ):
         raise HTTPException(
             status_code=409,
-            detail=ErrorResponse(error="Task already exists").model_dump(),
+            detail=ErrorResponse(error="Event already exists").model_dump(),
         )
-    task_dict = task.model_dump()
-    del task_dict["id"]
-    task_dict["date"] = to_utc_naive(task_dict["date"])
-    task_dict["deadline"] = to_utc_naive(task_dict["deadline"])
-    validate_dates(task_dict["date"], task_dict["deadline"])
-    if task_dict["completed"]:
-        task_dict["completed_at"] = task_dict["completed_at"] or utc_now()
-    else:
-        task_dict["completed_at"] = None
-    task_dict["owner"] = user["_id"]
-    id = (await db.tasks.insert_one(task_dict)).inserted_id
-    return Task(**task_schema({**task_dict, "_id": id}))
+    event_dict = event.model_dump(exclude={"id", "completed"})
+    event_dict["start"] = to_utc_naive(event_dict["start"])
+    event_dict["end"] = to_utc_naive(event_dict["end"])
+    validate_dates(event_dict["start"], event_dict["end"])
+    event_dict["owner"] = user["_id"]
+    id = (await db.events.insert_one(event_dict)).inserted_id
+    return Event(**event_schema({**event_dict, "_id": id}))
 
 
-@router.get("/", response_model=TaskPage)
-async def list_tasks(
+@router.get("/", response_model=EventPage)
+async def list_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     start: str | None = None,
@@ -101,85 +93,144 @@ async def list_tasks(
     user=Depends(get_current_user),
 ):
     # Paginated listing for the current user. An optional [start, end] range
-    # returns only tasks that overlap it (used by the calendar).
+    # returns only events that overlap it (used by the calendar).
     owner = user["_id"]
     query: dict = {"owner": owner}
+    overlap: dict = {}
     if start is not None:
-        query["deadline"] = {"$gte": parse_date_bound(start, end_of_day=False)}
+        overlap["end"] = {"$gte": parse_date_bound(start, end_of_day=False)}
     if end is not None:
-        query["date"] = {"$lte": parse_date_bound(end, end_of_day=True)}
+        overlap["start"] = {"$lte": parse_date_bound(end, end_of_day=True)}
+    if overlap:
+        # Recurring series are expanded by the client, so return every series
+        # that began before the range ends, wherever its first occurrence is.
+        series: dict = {"repeat": {"$in": ["daily", "weekly", "monthly", "yearly"]}}
+        if "start" in overlap:
+            series["start"] = overlap["start"]
+        query["$or"] = [overlap, series]
 
-    tasks = (
-        await db.tasks.find(query)
-        .sort([("date", 1), ("deadline", 1)])
+    events = (
+        await db.events.find(query)
+        .sort([("start", 1), ("end", 1)])
         .skip(skip)
         .limit(limit)
         .to_list(length=None)
     )
-    total = await db.tasks.count_documents(query)
+    total = await db.events.count_documents(query)
     return {
-        "items": tasks_schema(tasks),
+        "items": events_schema(events),
         "total": total,
         "page": skip // limit + 1,
         "page_size": limit,
     }
 
 
-# Declared before "/{id}" so "categories" is not parsed as a task id.
+# Declared before "/{id}" so "categories" is not parsed as a event id.
 @router.get("/categories", response_model=list[str])
 async def list_categories(user=Depends(get_current_user)):
-    values = await db.tasks.distinct("category", {"owner": user["_id"]})
+    values = await db.events.distinct("category", {"owner": user["_id"]})
     return sorted({v for v in values if v}, key=str.casefold)
 
 
-@router.get("/{id}", response_model=Task)
-async def get_task(id: str, user=Depends(get_current_user)):
-    obj_id = parse_object_id(id)
-    task = await task_exists("_id", obj_id, user["_id"])
-    if not task:
-        raise HTTPException(
-            status_code=404, detail=ErrorResponse(error="Task not found").model_dump()
-        )
-    return task
+# Declared before "/{id}" so "export.ics" is not parsed as an event id.
+@router.get("/export.ics")
+async def export_events(tz: str = "UTC", user=Depends(get_current_user)):
+    docs = await db.events.find({"owner": user["_id"]}).sort("start", 1).to_list(None)
+    return Response(
+        build_ics(docs, tz),
+        media_type="text/calendar",
+        headers={"Content-Disposition": 'attachment; filename="planifier.ics"'},
+    )
 
 
-@router.put("/", response_model=Task)
-async def update_task(task: Task, user=Depends(get_current_user)):
-    if not task.id:
+@router.post("/import")
+async def import_events(
+    request: Request, tz: str = "UTC", user=Depends(get_current_user)
+):
+    # The body is the raw .ics text. Events already present (same title and
+    # start) are skipped, so importing the same file twice is harmless.
+    raw = await request.body()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = ""
+    if len(raw) > 1_000_000 or "BEGIN:VCALENDAR" not in text.upper():
         raise HTTPException(
             status_code=400,
-            detail=ErrorResponse(error="Task ID is required").model_dump(),
+            detail=ErrorResponse(error="Not a valid .ics file").model_dump(),
         )
-    obj_id = parse_object_id(task.id)
-    existing = await db.tasks.find_one({"_id": obj_id, "owner": user["_id"]})
+    parsed = parse_ics(text, tz)
+    if len(parsed["events"]) > MAX_EVENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponse(
+                error=f"Too many events (max {MAX_EVENTS})"
+            ).model_dump(),
+        )
+
+    owner, fresh, skipped = user["_id"], [], 0
+    seen: set = set()
+    for event in parsed["events"]:
+        key = (event["title"], event["start"])
+        if key in seen or await db.events.find_one(
+            {"owner": owner, "title": event["title"], "start": event["start"]},
+            {"_id": 1},
+        ):
+            skipped += 1
+            continue
+        seen.add(key)
+        fresh.append({**event, "owner": owner})
+    if fresh:
+        await db.events.insert_many(fresh)
+    return {
+        "imported": len(fresh),
+        "skipped": skipped,
+        "simplified": parsed["simplified"],
+        "invalid": parsed["invalid"],
+    }
+
+
+@router.get("/{id}", response_model=Event)
+async def get_event(id: str, user=Depends(get_current_user)):
+    obj_id = parse_object_id(id)
+    event = await event_exists("_id", obj_id, user["_id"])
+    if not event:
+        raise HTTPException(
+            status_code=404, detail=ErrorResponse(error="Event not found").model_dump()
+        )
+    return event
+
+
+@router.put("/", response_model=Event)
+async def update_event(event: Event, user=Depends(get_current_user)):
+    if not event.id:
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponse(error="Event ID is required").model_dump(),
+        )
+    obj_id = parse_object_id(event.id)
+    existing = await db.events.find_one({"_id": obj_id, "owner": user["_id"]})
     if existing is None:
         raise HTTPException(
             status_code=404,
-            detail=ErrorResponse(error="Task does not exist").model_dump(),
+            detail=ErrorResponse(error="Event does not exist").model_dump(),
         )
 
     # Only touch the fields the client sent so older clients do not wipe
-    # calendar metadata (color, completed, category...).
-    changes = task.model_dump(exclude_unset=True, exclude={"id"})
-    for key in ("date", "deadline", "completed_at"):
+    # calendar metadata (color, category...).
+    changes = event.model_dump(exclude_unset=True, exclude={"id", "completed"})
+    for key in ("start", "end"):
         if changes.get(key) is not None:
             changes[key] = to_utc_naive(changes[key])
 
     validate_dates(
-        changes.get("date", existing["date"]),
-        changes.get("deadline", existing["deadline"]),
+        changes.get("start", existing["start"]),
+        changes.get("end", existing["end"]),
     )
-    if "completed" in changes:
-        if changes["completed"]:
-            if not changes.get("completed_at"):
-                changes["completed_at"] = utc_now()
-        else:
-            changes["completed_at"] = None
-
     if not changes:
-        return Task(**task_schema(existing))
+        return Event(**event_schema(existing))
 
-    updated = await db.tasks.find_one_and_update(
+    updated = await db.events.find_one_and_update(
         {"_id": obj_id, "owner": user["_id"]},
         {"$set": changes},
         return_document=ReturnDocument.AFTER,
@@ -187,45 +238,22 @@ async def update_task(task: Task, user=Depends(get_current_user)):
     if updated is None:
         raise HTTPException(
             status_code=404,
-            detail=ErrorResponse(error="Task does not exist").model_dump(),
+            detail=ErrorResponse(error="Event does not exist").model_dump(),
         )
-    return Task(**task_schema(updated))
-
-
-@router.patch("/{id}/completed", response_model=Task)
-async def set_task_completed(
-    id: str, payload: TaskCompletion, user=Depends(get_current_user)
-):
-    obj_id = parse_object_id(id)
-    updated = await db.tasks.find_one_and_update(
-        {"_id": obj_id, "owner": user["_id"]},
-        {
-            "$set": {
-                "completed": payload.completed,
-                "completed_at": utc_now() if payload.completed else None,
-            }
-        },
-        return_document=ReturnDocument.AFTER,
-    )
-    if updated is None:
-        raise HTTPException(
-            status_code=404,
-            detail=ErrorResponse(error="Task does not exist").model_dump(),
-        )
-    return Task(**task_schema(updated))
+    return Event(**event_schema(updated))
 
 
 @router.delete("/{id}", status_code=204)
-async def delete_task(id: str, user=Depends(get_current_user)):
+async def delete_event(id: str, user=Depends(get_current_user)):
     obj_id = parse_object_id(id)
-    found = await db.tasks.find_one_and_delete({"_id": obj_id, "owner": user["_id"]})
+    found = await db.events.find_one_and_delete({"_id": obj_id, "owner": user["_id"]})
     if not found:
         raise HTTPException(
             status_code=404,
-            detail=ErrorResponse(error="Task does not exist").model_dump(),
+            detail=ErrorResponse(error="Event does not exist").model_dump(),
         )
 
 
-async def task_exists(field: str, key, user_id):
-    task = await db.tasks.find_one({field: key, "owner": user_id})
-    return task_schema(task) if task is not None else None
+async def event_exists(field: str, key, user_id):
+    event = await db.events.find_one({field: key, "owner": user_id})
+    return event_schema(event) if event is not None else None

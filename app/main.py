@@ -4,23 +4,31 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.db.database import db
-from app.routers import auth, tasks
+from app.routers import auth, events
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.users.create_index("username", unique=True)
     await db.users.create_index("email", unique=True)
-    await db.tasks.create_index([("owner", 1), ("date", 1)])
-    await db.tasks.create_index([("owner", 1), ("deadline", 1)])
+    # date/deadline became start/end and manual completion was removed.
+    await db.events.update_many(
+        {"date": {"$exists": True}},
+        {
+            "$rename": {"date": "start", "deadline": "end"},
+            "$unset": {"completed": "", "completed_at": ""},
+        },
+    )
+    await db.events.create_index([("owner", 1), ("start", 1)])
+    await db.events.create_index([("owner", 1), ("end", 1)])
     # Supports the duplicate-title check without failing on existing duplicates.
-    await db.tasks.create_index([("owner", 1), ("title", 1)])
+    await db.events.create_index([("owner", 1), ("title", 1)])
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 
-app.include_router(tasks.router)
+app.include_router(events.router)
 app.include_router(auth.router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

@@ -16,15 +16,14 @@ import {
   startOfMonth,
   startOfWeek,
 } from "./dates.js";
-import { sound } from "./fx.js";
 import {
-  createTask,
-  deleteTask,
+  createEvent,
+  deleteEvent,
   listCategories,
-  listTasksRange,
-  setTaskCompleted,
-  updateTask,
-} from "./tasks.js";
+  listEventsRange,
+  isHttpUrl,
+  updateEvent,
+} from "./events.js";
 import { makeCategoryPicker } from "./category-picker.js";
 
 const DAY_NAMES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
@@ -40,6 +39,14 @@ const MIN_EVENT_HEIGHT = 18;
 const ALL_DAY_LANES = 2;
 const DRAG_THRESHOLD = 5;
 
+const REPEAT_OPTIONS = [
+  ["none", "No se repite"],
+  ["daily", "Todos los días"],
+  ["weekly", "Todas las semanas"],
+  ["monthly", "Todos los meses"],
+  ["yearly", "Todos los años"],
+];
+
 const COLORS = [
   { key: "tomato", label: "Tomate" },
   { key: "flamingo", label: "Flamenco" },
@@ -54,7 +61,7 @@ const COLORS = [
   { key: "graphite", label: "Grafito" },
 ];
 
-const HIDDEN_KEY = "taskify_cal_hidden";
+const HIDDEN_KEY = "planifier_cal_hidden";
 
 const state = {
   active: false,
@@ -62,7 +69,7 @@ const state = {
   dirty: true,
   view: "month",
   cursor: startOfDay(new Date()),
-  tasks: [],
+  events: [],
   requestId: 0,
   maxLanes: 3,
   timeScroll: null,
@@ -75,7 +82,7 @@ const state = {
 const el = (id) => document.getElementById(id);
 
 // Category visibility is a per-browser view preference, like toggling
-// calendars on and off. "" stands for tasks without a category.
+// calendars on and off. "" stands for events without a category.
 
 function loadHiddenCategories() {
   try {
@@ -94,15 +101,15 @@ function saveHiddenCategories() {
   }
 }
 
-function shownTasks() {
-  return state.tasks.filter((task) => !state.hiddenCategories.has(task.category || ""));
+function shownEvents() {
+  return state.events.filter((evt) => !state.hiddenCategories.has(evt.category || ""));
 }
 
 async function loadCategories() {
   try {
     state.categories = await listCategories();
   } catch {
-    state.categories = [...new Set(state.tasks.map((t) => t.category).filter(Boolean))];
+    state.categories = [...new Set(state.events.map((t) => t.category).filter(Boolean))];
   }
   renderCategoryFilter();
 }
@@ -207,14 +214,14 @@ async function loadCalendar() {
   setStatus("Cargando calendario…");
 
   try {
-    const tasks = await listTasksRange(start.toISOString(), end.toISOString());
+    const events = await listEventsRange(start.toISOString(), end.toISOString());
     if (requestId !== state.requestId) return;
-    state.tasks = tasks;
+    state.events = events;
     setStatus("");
     loadCategories();
   } catch (error) {
     if (requestId !== state.requestId) return;
-    state.tasks = [];
+    state.events = [];
     state.dirty = true;
     setStatus(error.message, "error");
   }
@@ -278,7 +285,7 @@ function renderWeek(weekStart, month) {
     number.className = "cal-day__num";
     number.textContent = String(day.getDate());
     cell.appendChild(number);
-    cell.addEventListener("click", () => openTaskForm(null, { date: day }));
+    cell.addEventListener("click", () => openEventForm(null, { date: day }));
 
     cells.push(cell);
     week.appendChild(cell);
@@ -288,7 +295,7 @@ function renderWeek(weekStart, month) {
   overlay.className = "cal-week__events";
   const hidden = new Map();
 
-  for (const segment of layoutSegments(shownTasks(), weekStart, 7)) {
+  for (const segment of layoutSegments(shownEvents(), weekStart, 7)) {
     if (segment.lane >= state.maxLanes) {
       for (let col = segment.startCol; col <= segment.endCol; col += 1) {
         const key = dayKey(days[col]);
@@ -311,7 +318,7 @@ function renderWeek(weekStart, month) {
     more.dataset.date = key;
     more.dataset.popoverTrigger = "true";
     more.textContent = `+${count} más`;
-    more.setAttribute("aria-label", `${count} tareas más el ${key}`);
+    more.setAttribute("aria-label", `${count} eventos más el ${key}`);
     more.addEventListener("click", (event) => {
       event.stopPropagation();
       openDayList(key);
@@ -322,39 +329,39 @@ function renderWeek(weekStart, month) {
   return week;
 }
 
-function layoutSegments(tasks, rangeStart, dayCount) {
+function layoutSegments(events, rangeStart, dayCount) {
   const rangeEnd = addDays(rangeStart, dayCount);
   const lastCol = dayCount - 1;
   const segments = [];
 
-  for (const task of tasks) {
-    const taskStart = startOfDay(parseDate(task.date));
-    let taskEnd = startOfDay(parseDate(task.deadline || task.date));
-    if (taskEnd < taskStart) taskEnd = taskStart;
-    if (taskEnd < rangeStart || taskStart >= rangeEnd) continue;
+  for (const evt of events) {
+    const eventStart = startOfDay(parseDate(evt.start));
+    let eventEnd = startOfDay(parseDate(evt.end || evt.start));
+    if (eventEnd < eventStart) eventEnd = eventStart;
+    if (eventEnd < rangeStart || eventStart >= rangeEnd) continue;
 
-    const startCol = Math.max(0, diffDays(rangeStart, taskStart));
-    const endCol = Math.min(lastCol, diffDays(rangeStart, taskEnd));
+    const startCol = Math.max(0, diffDays(rangeStart, eventStart));
+    const endCol = Math.min(lastCol, diffDays(rangeStart, eventEnd));
     if (startCol > lastCol || endCol < 0) continue;
 
     segments.push({
-      task,
+      evt,
       startCol,
       endCol,
       lane: 0,
-      multiDay: !sameDay(taskStart, taskEnd) || Boolean(task.all_day),
-      endsHere: diffDays(rangeStart, taskEnd) <= lastCol,
+      multiDay: !sameDay(eventStart, eventEnd) || Boolean(evt.all_day),
+      endsHere: diffDays(rangeStart, eventEnd) <= lastCol,
     });
   }
 
   segments.sort((a, b) => {
     if (a.multiDay !== b.multiDay) return a.multiDay ? -1 : 1;
-    if (Boolean(a.task.completed) !== Boolean(b.task.completed)) {
-      return a.task.completed ? 1 : -1;
+    if (Boolean(a.evt.completed) !== Boolean(b.evt.completed)) {
+      return a.evt.completed ? 1 : -1;
     }
-    const byDate = String(a.task.date).localeCompare(String(b.task.date));
+    const byDate = String(a.evt.start).localeCompare(String(b.evt.start));
     if (byDate !== 0) return byDate;
-    return String(a.task.title).localeCompare(String(b.task.title), "es");
+    return String(a.evt.title).localeCompare(String(b.evt.title), "es");
   });
 
   const lanes = [];
@@ -377,21 +384,21 @@ function layoutSegments(tasks, rangeStart, dayCount) {
 }
 
 function renderMonthEvent(segment) {
-  const task = segment.task;
+  const evt = segment.evt;
   const event = document.createElement("div");
   event.className = "cal-event";
-  if (task.completed) event.classList.add("cal-event--done");
-  if (task.color) event.dataset.color = task.color;
-  event.dataset.id = task.id;
-  event.dataset.action = "open-task";
+  if (evt.completed) event.classList.add("cal-event--done");
+  if (evt.color) event.dataset.color = evt.color;
+  event.dataset.id = evt.id;
+  event.dataset.action = "open-event";
   event.dataset.popoverTrigger = "true";
   event.style.left = `calc(${(segment.startCol / 7) * 100}% + 3px)`;
   event.style.width = `calc(${((segment.endCol - segment.startCol + 1) / 7) * 100}% - 6px)`;
   event.style.top = `${DAY_HEAD + segment.lane * LANE_HEIGHT}px`;
 
   const time =
-    !task.all_day && !segment.multiDay ? `${formatTime(task.date)} ` : "";
-  event.textContent = `${time}${task.title}`;
+    !evt.all_day && !segment.multiDay ? `${formatTime(evt.start)} ` : "";
+  event.textContent = `${time}${evt.title}`;
   event.title = event.textContent;
   event.tabIndex = 0;
   event.setAttribute("role", "button");
@@ -402,13 +409,13 @@ function renderMonthEvent(segment) {
     handle.title = "Cambiar fecha de fin";
     handle.setAttribute("aria-hidden", "true");
     handle.addEventListener("pointerdown", (pointerEvent) =>
-      startResizePointer(pointerEvent, task)
+      startResizePointer(pointerEvent, evt)
     );
     event.appendChild(handle);
   }
 
   event.addEventListener("pointerdown", (pointerEvent) =>
-    startMovePointer(pointerEvent, task)
+    startMovePointer(pointerEvent, evt)
   );
   event.addEventListener("click", (clickEvent) => {
     clickEvent.stopPropagation();
@@ -416,12 +423,12 @@ function renderMonthEvent(segment) {
       state.suppressClick = false;
       return;
     }
-    openTaskDetails(task);
+    openEventDetails(evt);
   });
   event.addEventListener("keydown", (keyEvent) => {
     if (keyEvent.key === "Enter" || keyEvent.key === " ") {
       keyEvent.preventDefault();
-      openTaskDetails(task);
+      openEventDetails(evt);
     }
   });
 
@@ -504,8 +511,8 @@ function renderTimeHeader(days) {
 function renderAllDayRow(days) {
   const rangeStart = days[0];
   const dayCount = days.length;
-  const tasks = shownTasks().filter((task) => task.all_day);
-  const segments = layoutSegments(tasks, rangeStart, dayCount);
+  const events = shownEvents().filter((evt) => evt.all_day);
+  const segments = layoutSegments(events, rangeStart, dayCount);
   const maxLane = segments.reduce(
     (max, segment) => Math.max(max, segment.lane),
     -1
@@ -527,7 +534,7 @@ function renderAllDayRow(days) {
     cell.className = "cal-allday-col";
     cell.dataset.date = key;
     cell.addEventListener("click", () => {
-      openTaskForm(null, { date: day, allDay: true });
+      openEventForm(null, { date: day, allDay: true });
     });
     grid.appendChild(cell);
     cells.set(key, cell);
@@ -560,7 +567,7 @@ function renderAllDayRow(days) {
       }
     );
     more.dataset.popoverTrigger = "true";
-    more.setAttribute("aria-label", `${count} tareas más el ${key}`);
+    more.setAttribute("aria-label", `${count} eventos más el ${key}`);
     cell.appendChild(more);
   }
 
@@ -574,19 +581,19 @@ function renderAllDayRow(days) {
 }
 
 function renderAllDayEvent(segment, dayCount) {
-  const task = segment.task;
+  const evt = segment.evt;
   const event = document.createElement("div");
   event.className = "cal-event cal-allday-event";
-  if (task.completed) event.classList.add("cal-event--done");
-  if (task.color) event.dataset.color = task.color;
-  event.dataset.id = task.id;
+  if (evt.completed) event.classList.add("cal-event--done");
+  if (evt.color) event.dataset.color = evt.color;
+  event.dataset.id = evt.id;
   event.dataset.popoverTrigger = "true";
   event.style.left = `calc(${(segment.startCol / dayCount) * 100}% + 2px)`;
   event.style.width = `calc(${((segment.endCol - segment.startCol + 1) / dayCount) * 100}% - 4px)`;
   event.style.top = `${4 + segment.lane * 20}px`;
   event.style.height = "18px";
-  event.textContent = task.title;
-  event.title = task.title;
+  event.textContent = evt.title;
+  event.title = evt.title;
   event.tabIndex = 0;
   event.setAttribute("role", "button");
 
@@ -596,13 +603,13 @@ function renderAllDayEvent(segment, dayCount) {
     handle.title = "Cambiar fecha de fin";
     handle.setAttribute("aria-hidden", "true");
     handle.addEventListener("pointerdown", (pointerEvent) =>
-      startAllDayResizePointer(pointerEvent, task)
+      startAllDayResizePointer(pointerEvent, evt)
     );
     event.appendChild(handle);
   }
 
   event.addEventListener("pointerdown", (pointerEvent) =>
-    startAllDayMovePointer(pointerEvent, task)
+    startAllDayMovePointer(pointerEvent, evt)
   );
   event.addEventListener("click", (clickEvent) => {
     clickEvent.stopPropagation();
@@ -610,12 +617,12 @@ function renderAllDayEvent(segment, dayCount) {
       state.suppressClick = false;
       return;
     }
-    openTaskDetails(task);
+    openEventDetails(evt);
   });
   event.addEventListener("keydown", (keyEvent) => {
     if (keyEvent.key === "Enter" || keyEvent.key === " ") {
       keyEvent.preventDefault();
-      openTaskDetails(task);
+      openEventDetails(evt);
     }
   });
 
@@ -641,7 +648,7 @@ function renderTimeGrid(days) {
 
   const grid = document.createElement("div");
   grid.className = "cal-time__grid";
-  const tasks = shownTasks().filter((task) => !task.all_day);
+  const events = shownEvents().filter((evt) => !evt.all_day);
 
   for (const day of days) {
     const key = dayKey(day);
@@ -650,7 +657,7 @@ function renderTimeGrid(days) {
     column.dataset.date = key;
     if (isToday(day)) column.classList.add("cal-time__col--today");
 
-    const events = timedEventsForDay(tasks, day);
+    const events = timedEventsForDay(events, day);
     layoutTimedEvents(events);
     for (const entry of events) {
       column.appendChild(renderTimedEvent(entry, day));
@@ -700,13 +707,13 @@ function tickNow() {
   if (state.view === "week" || state.view === "day") updateNowLines();
 }
 
-function timedEventsForDay(tasks, day) {
+function timedEventsForDay(events, day) {
   const dayStart = startOfDay(day);
   const dayEnd = endOfDay(day);
   const result = [];
 
-  for (const task of tasks) {
-    const { start, end } = taskWindow(task);
+  for (const evt of events) {
+    const { start, end } = eventWindow(evt);
     if (end <= dayStart || start >= dayEnd) continue;
     const clipStart = new Date(Math.max(start.getTime(), dayStart.getTime()));
     const clipEnd = new Date(Math.min(end.getTime(), dayEnd.getTime()));
@@ -720,7 +727,7 @@ function timedEventsForDay(tasks, day) {
     if (endMinutes <= startMinutes) {
       endMinutes = Math.min(MINUTES_PER_DAY, startMinutes + SNAP_MINUTES);
     }
-    result.push({ task, start: clipStart, end: clipEnd, startMinutes, endMinutes });
+    result.push({ evt, start: clipStart, end: clipEnd, startMinutes, endMinutes });
   }
 
   return result;
@@ -747,7 +754,7 @@ function layoutTimedEvents(events) {
 }
 
 function renderTimedEvent(entry, day) {
-  const { task, startMinutes, endMinutes, lane, columns } = entry;
+  const { evt, startMinutes, endMinutes, lane, columns } = entry;
   const height = Math.max(
     MIN_EVENT_HEIGHT,
     ((endMinutes - startMinutes) / 60) * HOUR_HEIGHT - 2
@@ -755,9 +762,9 @@ function renderTimedEvent(entry, day) {
   const block = document.createElement("div");
   block.className = "cal-time__event";
   if (height < 34) block.classList.add("cal-time__event--short");
-  if (task.completed) block.classList.add("cal-time__event--done");
-  if (task.color) block.dataset.color = task.color;
-  block.dataset.id = task.id;
+  if (evt.completed) block.classList.add("cal-time__event--done");
+  if (evt.color) block.dataset.color = evt.color;
+  block.dataset.id = evt.id;
   block.dataset.popoverTrigger = "true";
   block.style.top = `${Math.min(
     (startMinutes / 60) * HOUR_HEIGHT,
@@ -771,32 +778,32 @@ function renderTimedEvent(entry, day) {
 
   const title = document.createElement("span");
   title.className = "cal-time__event-title";
-  title.textContent = task.title;
+  title.textContent = evt.title;
   block.appendChild(title);
 
-  const timeText = segmentTimeLabel(task, day);
+  const timeText = segmentTimeLabel(evt, day);
   if (timeText) {
     const time = document.createElement("span");
     time.className = "cal-time__event-time";
     time.textContent = timeText;
     block.appendChild(time);
   }
-  block.title = `${task.title}${timeText ? ` · ${timeText}` : ""}`;
+  block.title = `${evt.title}${timeText ? ` · ${timeText}` : ""}`;
   block.setAttribute("aria-label", block.title);
 
-  if (sameDay(parseDate(task.deadline), day)) {
+  if (sameDay(parseDate(evt.end), day)) {
     const handle = document.createElement("span");
     handle.className = "cal-time__event-resize";
     handle.title = "Cambiar hora de fin";
     handle.setAttribute("aria-hidden", "true");
     handle.addEventListener("pointerdown", (pointerEvent) =>
-      startTimedResizePointer(pointerEvent, task)
+      startTimedResizePointer(pointerEvent, evt)
     );
     block.appendChild(handle);
   }
 
   block.addEventListener("pointerdown", (pointerEvent) =>
-    startTimedMovePointer(pointerEvent, task)
+    startTimedMovePointer(pointerEvent, evt)
   );
   block.addEventListener("click", (clickEvent) => {
     clickEvent.stopPropagation();
@@ -804,20 +811,20 @@ function renderTimedEvent(entry, day) {
       state.suppressClick = false;
       return;
     }
-    openTaskDetails(task);
+    openEventDetails(evt);
   });
   block.addEventListener("keydown", (keyEvent) => {
     if (keyEvent.key === "Enter" || keyEvent.key === " ") {
       keyEvent.preventDefault();
-      openTaskDetails(task);
+      openEventDetails(evt);
     }
   });
 
   return block;
 }
 
-function segmentTimeLabel(task, day) {
-  const { start, end } = taskWindow(task);
+function segmentTimeLabel(evt, day) {
+  const { start, end } = eventWindow(evt);
   const startsHere = sameDay(start, day);
   const endsHere = sameDay(end, day);
   if (startsHere && endsHere) {
@@ -906,7 +913,7 @@ function trackPointer(onMove, onUp) {
   window.addEventListener("pointercancel", end);
 }
 
-function startTimedMovePointer(event, task) {
+function startTimedMovePointer(event, evt) {
   if (event.button !== undefined && event.button !== 0) return;
   if (event.target.closest(".cal-time__event-resize")) return;
   event.stopPropagation();
@@ -914,9 +921,9 @@ function startTimedMovePointer(event, task) {
   const startX = event.clientX;
   const startY = event.clientY;
   const originKey =
-    dayUnderPointerTime(startX, startY) || dayKey(parseDate(task.date));
-  const originalDate = parseDate(task.date);
-  const originalDeadline = parseDate(task.deadline);
+    dayUnderPointerTime(startX, startY) || dayKey(parseDate(evt.start));
+  const originalDate = parseDate(evt.start);
+  const originalDeadline = parseDate(evt.end);
   const node = event.currentTarget;
   let dragging = false;
   let ghost = null;
@@ -960,13 +967,13 @@ function startTimedMovePointer(event, task) {
       addDays(originalDeadline, deltaDays).getTime() + deltaMinutes * 60000
     );
     if (deadline <= date) return;
-    void updateTaskDates(task, date.toISOString(), deadline.toISOString());
+    void updateEventDates(evt, date.toISOString(), deadline.toISOString());
   }
 
   trackPointer(onMove, onUp);
 }
 
-function startTimedResizePointer(event, task) {
+function startTimedResizePointer(event, evt) {
   if (event.button !== undefined && event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
@@ -1003,7 +1010,7 @@ function startTimedResizePointer(event, task) {
     if (!targetColumn) return;
 
     const targetDay = dateFromKey(targetKey);
-    const start = parseDate(task.date);
+    const start = parseDate(evt.start);
     if (targetDay < startOfDay(start)) return;
     const minutes = snapMinutes(
       minutesFromClientY(upEvent.clientY, targetColumn)
@@ -1019,20 +1026,20 @@ function startTimedResizePointer(event, task) {
       setStatus("La hora de fin debe ser posterior al inicio.", "error");
       return;
     }
-    void updateTaskDates(task, task.date, deadline.toISOString());
+    void updateEventDates(evt, evt.start, deadline.toISOString());
   }
 
   trackPointer(onMove, onUp);
 }
 
-function startAllDayMovePointer(event, task) {
+function startAllDayMovePointer(event, evt) {
   if (event.button !== undefined && event.button !== 0) return;
   event.stopPropagation();
 
   const startX = event.clientX;
   const startY = event.clientY;
   const originKey =
-    dayUnderPointerTime(startX, startY) || dayKey(parseDate(task.date));
+    dayUnderPointerTime(startX, startY) || dayKey(parseDate(evt.start));
   const node = event.currentTarget;
   let dragging = false;
   let ghost = null;
@@ -1061,13 +1068,13 @@ function startAllDayMovePointer(event, task) {
     if (!targetKey) return;
     const delta = diffDays(dateFromKey(originKey), dateFromKey(targetKey));
     if (delta === 0) return;
-    void shiftTaskDays(task, delta);
+    void shiftEventDays(evt, delta);
   }
 
   trackPointer(onMove, onUp);
 }
 
-function startAllDayResizePointer(event, task) {
+function startAllDayResizePointer(event, evt) {
   if (event.button !== undefined && event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
@@ -1097,7 +1104,7 @@ function startAllDayResizePointer(event, task) {
       upEvent.clientX,
       upEvent.clientY
     );
-    if (targetKey) void resizeTaskToDay(task, targetKey);
+    if (targetKey) void resizeEventToDay(evt, targetKey);
   }
 
   trackPointer(onMove, onUp);
@@ -1132,7 +1139,7 @@ function startCreatePointer(event, day, column) {
     if (upEvent.type === "pointercancel") return;
     if (!dragging) {
       const start = Math.min(anchor, MAX_END_MINUTES - 30);
-      openTaskForm(null, {
+      openEventForm(null, {
         date: day,
         allDay: false,
         startTime: minutesToTime(start),
@@ -1151,7 +1158,7 @@ function startCreatePointer(event, day, column) {
       if (end - start < SNAP_MINUTES) start = Math.max(0, end - 30);
     }
     if (end <= start) return;
-    openTaskForm(null, {
+    openEventForm(null, {
       date: day,
       allDay: false,
       startTime: minutesToTime(start),
@@ -1162,7 +1169,7 @@ function startCreatePointer(event, day, column) {
   trackPointer(onMove, onUp);
 }
 
-// Twelve mini months; days with tasks get a dot and open the day view.
+// Twelve mini months; days with events get a dot and open the day view.
 function renderYear() {
   const main = el("cal-main");
   const year = state.cursor.getFullYear();
@@ -1170,8 +1177,8 @@ function renderYear() {
   const yearEnd = endOfDay(new Date(year, 11, 31));
 
   const busy = new Set();
-  for (const task of shownTasks()) {
-    const { start, end } = taskWindow(task);
+  for (const evt of shownEvents()) {
+    const { start, end } = eventWindow(evt);
     if (end < yearStart || start > yearEnd) continue;
     let day = startOfDay(start < yearStart ? yearStart : start);
     const last = end > yearEnd ? yearEnd : end;
@@ -1210,12 +1217,12 @@ function renderYear() {
       button.type = "button";
       button.className = "cal-mini__day";
       button.textContent = String(day.getDate());
-      const hasTasks = busy.has(dayKey(day));
+      const hasEvents = busy.has(dayKey(day));
       button.setAttribute(
         "aria-label",
-        hasTasks ? `${formatLongDate(day)}, con tareas` : formatLongDate(day)
+        hasEvents ? `${formatLongDate(day)}, con eventos` : formatLongDate(day)
       );
-      if (hasTasks) button.classList.add("cal-year__day--busy");
+      if (hasEvents) button.classList.add("cal-year__day--busy");
       if (isToday(day)) button.classList.add("cal-mini__day--today");
       button.addEventListener("click", () => {
         state.cursor = startOfDay(day);
@@ -1255,11 +1262,11 @@ function suppressNextClick() {
   }, 250);
 }
 
-function startMovePointer(event, task) {
+function startMovePointer(event, evt) {
   if (event.button !== undefined && event.button !== 0) return;
   if (event.target.closest(".cal-event__resize")) return;
 
-  const originKey = dayUnderPointer(event.clientX, event.clientY) || dayKey(parseDate(task.date));
+  const originKey = dayUnderPointer(event.clientX, event.clientY) || dayKey(parseDate(evt.start));
   const startX = event.clientX;
   const startY = event.clientY;
   const node = event.currentTarget;
@@ -1290,13 +1297,13 @@ function startMovePointer(event, task) {
     if (!targetKey) return;
     const delta = diffDays(dateFromKey(originKey), dateFromKey(targetKey));
     if (delta === 0) return;
-    void shiftTaskDays(task, delta);
+    void shiftEventDays(evt, delta);
   }
 
   trackPointer(onMove, onUp);
 }
 
-function startResizePointer(event, task) {
+function startResizePointer(event, evt) {
   if (event.button !== undefined && event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
@@ -1321,45 +1328,46 @@ function startResizePointer(event, task) {
     if (upEvent.type === "pointercancel" || !resizing) return;
 
     const targetKey = dayUnderPointer(upEvent.clientX, upEvent.clientY);
-    if (targetKey) void resizeTaskToDay(task, targetKey);
+    if (targetKey) void resizeEventToDay(evt, targetKey);
   }
 
   trackPointer(onMove, onUp);
 }
 
-async function updateTaskDates(task, date, deadline) {
-  const previous = { date: task.date, deadline: task.deadline };
-  task.date = date;
-  task.deadline = deadline;
+async function updateEventDates(evt, date, deadline) {
+  const previous = { date: evt.start, deadline: evt.end };
+  evt.start = date;
+  evt.end = deadline;
   renderCalendar();
 
   try {
-    const updated = await updateTask({ ...task });
-    Object.assign(task, updated);
+    const updated = await updateEvent({ ...evt });
+    Object.assign(evt, updated);
     renderCalendar();
-    notifyTasksChanged();
+    notifyEventsChanged();
+    if (evt.series_id) loadCalendar(); // the other occurrences moved too
   } catch (error) {
-    task.date = previous.date;
-    task.deadline = previous.deadline;
+    evt.start = previous.date;
+    evt.end = previous.deadline;
     renderCalendar();
     setStatus(error.message, "error");
   }
 }
 
-function shiftTaskDays(task, delta) {
-  const date = addDays(parseDate(task.date), delta);
-  const deadline = addDays(parseDate(task.deadline), delta);
-  return updateTaskDates(task, date.toISOString(), deadline.toISOString());
+function shiftEventDays(evt, delta) {
+  const date = addDays(parseDate(evt.start), delta);
+  const deadline = addDays(parseDate(evt.end), delta);
+  return updateEventDates(evt, date.toISOString(), deadline.toISOString());
 }
 
-function resizeTaskToDay(task, targetKey) {
-  const start = parseDate(task.date);
-  const currentEnd = parseDate(task.deadline);
+function resizeEventToDay(evt, targetKey) {
+  const start = parseDate(evt.start);
+  const currentEnd = parseDate(evt.end);
   const target = dateFromKey(targetKey);
   if (target < startOfDay(start)) return;
 
   let deadline;
-  if (task.all_day) {
+  if (evt.all_day) {
     deadline = endOfDay(target);
   } else {
     deadline = new Date(
@@ -1376,7 +1384,7 @@ function resizeTaskToDay(task, targetKey) {
       return;
     }
   }
-  return updateTaskDates(task, task.date, deadline.toISOString());
+  return updateEventDates(evt, evt.start, deadline.toISOString());
 }
 
 function renderMini() {
@@ -1482,37 +1490,37 @@ function createPopover(titleText) {
   return body;
 }
 
-function taskWindow(task) {
-  const start = parseDate(task.date);
-  let end = task.deadline ? parseDate(task.deadline) : start;
+function eventWindow(evt) {
+  const start = parseDate(evt.start);
+  let end = evt.end ? parseDate(evt.end) : start;
   if (end < start) end = start;
   return { start, end };
 }
 
-function taskOverlapsDay(task, day) {
-  const { start, end } = taskWindow(task);
+function eventOverlapsDay(evt, day) {
+  const { start, end } = eventWindow(evt);
   return (
     start.getTime() <= endOfDay(day).getTime() &&
     end.getTime() >= startOfDay(day).getTime()
   );
 }
 
-function sortDayTasks(a, b) {
+function sortDayEvents(a, b) {
   if (Boolean(a.all_day) !== Boolean(b.all_day)) return a.all_day ? -1 : 1;
   if (Boolean(a.completed) !== Boolean(b.completed)) {
     return a.completed ? 1 : -1;
   }
-  return String(a.date).localeCompare(String(b.date));
+  return String(a.start).localeCompare(String(b.start));
 }
 
-function taskTimeLabel(task, day) {
-  if (task.all_day) return "Todo el día";
-  return segmentTimeLabel(task, day);
+function eventTimeLabel(evt, day) {
+  if (evt.all_day) return "Todo el día";
+  return segmentTimeLabel(evt, day);
 }
 
-function taskRangeLabel(task) {
-  const { start, end } = taskWindow(task);
-  if (task.all_day) {
+function eventRangeLabel(evt) {
+  const { start, end } = eventWindow(evt);
+  if (evt.all_day) {
     if (sameDay(start, end)) return formatLongDate(start);
     return `${formatLongDate(start)} – ${formatLongDate(end)}`;
   }
@@ -1522,8 +1530,8 @@ function taskRangeLabel(task) {
   return `${formatLongDate(start)} ${formatTime(start)} – ${formatLongDate(end)} ${formatTime(end)}`;
 }
 
-function notifyTasksChanged() {
-  document.dispatchEvent(new CustomEvent("taskify:tasks-changed"));
+function notifyEventsChanged() {
+  document.dispatchEvent(new CustomEvent("planifier:events-changed"));
 }
 
 function makeButton(text, className, onClick) {
@@ -1582,7 +1590,7 @@ function makeColorPicker(selected) {
   const wrap = document.createElement("div");
   wrap.className = "cal-colors";
   wrap.setAttribute("role", "radiogroup");
-  wrap.setAttribute("aria-label", "Color de la tarea");
+  wrap.setAttribute("aria-label", "Color del evento");
   let current = selected || "";
 
   const options = [{ key: "", label: "Predeterminado" }, ...COLORS];
@@ -1607,7 +1615,7 @@ function makeColorPicker(selected) {
   return { node: wrap, getValue: () => current || null };
 }
 
-function buildTaskPayload(values) {
+function buildEventPayload(values) {
   const startDay = dateFromKey(values.startDate);
   const endDay = dateFromKey(values.endDate || values.startDate);
   if (endDay < startDay) {
@@ -1649,33 +1657,35 @@ function buildTaskPayload(values) {
     id: values.id || null,
     title: values.title,
     description: values.description,
-    date: date.toISOString(),
-    deadline: deadline.toISOString(),
+    start: date.toISOString(),
+    end: deadline.toISOString(),
     all_day: values.allDay,
-    completed: values.completed,
     color: values.color,
     category: values.category || null,
+    location: values.location || null,
+    link: values.link || null,
+    repeat: values.repeat,
   };
 }
 
-function openTaskForm(task = null, defaults = {}) {
-  const isEdit = Boolean(task);
-  const body = createPopover(isEdit ? "Editar tarea" : "Nueva tarea");
+function openEventForm(evt = null, defaults = {}) {
+  const isEdit = Boolean(evt);
+  const body = createPopover(isEdit ? "Editar evento" : "Nuevo evento");
   const form = document.createElement("form");
   form.className = "cal-form";
   form.noValidate = true;
 
-  const titleInput = makeInput("text", task ? task.title : "");
+  const titleInput = makeInput("text", evt ? evt.title : "");
   titleInput.required = true;
   titleInput.maxLength = 120;
-  titleInput.placeholder = "Título de la tarea";
+  titleInput.placeholder = "Título del evento";
 
-  const startValue = task
-    ? parseDate(task.date)
+  const startValue = evt
+    ? parseDate(evt.start)
     : defaults.date
       ? startOfDay(defaults.date)
       : startOfDay(new Date());
-  const endValue = task ? parseDate(task.deadline) : startValue;
+  const endValue = evt ? parseDate(evt.end) : startValue;
 
   const startDateInput = makeInput("date", dayKey(startValue));
   startDateInput.required = true;
@@ -1683,8 +1693,8 @@ function openTaskForm(task = null, defaults = {}) {
   endDateInput.required = true;
 
   const allDayInput = makeInput("checkbox");
-  allDayInput.checked = task
-    ? Boolean(task.all_day)
+  allDayInput.checked = evt
+    ? Boolean(evt.all_day)
     : defaults.allDay !== false;
   const allDayLabel = document.createElement("label");
   allDayLabel.className = "cal-toggle";
@@ -1692,13 +1702,13 @@ function openTaskForm(task = null, defaults = {}) {
 
   const startTimeInput = makeInput(
     "time",
-    task && !task.all_day
+    evt && !evt.all_day
       ? timeValue(startValue)
       : defaults.startTime || "09:00"
   );
   const endTimeInput = makeInput(
     "time",
-    task && !task.all_day
+    evt && !evt.all_day
       ? timeValue(endValue)
       : defaults.endTime || "10:00"
   );
@@ -1713,16 +1723,16 @@ function openTaskForm(task = null, defaults = {}) {
 
   const descriptionInput = document.createElement("textarea");
   descriptionInput.rows = 3;
-  descriptionInput.value = task ? task.description || "" : "";
+  descriptionInput.value = evt ? evt.description || "" : "";
   descriptionInput.placeholder = "Descripción (opcional)";
 
-  const categoryPicker = makeCategoryPicker(task ? task.category || "" : "", state.categories);
+  const locationInput = makeInput("text", evt ? evt.location || "" : "");
+  locationInput.maxLength = 120;
+  const linkInput = makeInput("url", evt ? evt.link || "" : "");
+  linkInput.maxLength = 500;
+  linkInput.placeholder = "https://";
 
-  const completedInput = makeInput("checkbox");
-  completedInput.checked = Boolean(task && task.completed);
-  const completedLabel = document.createElement("label");
-  completedLabel.className = "cal-toggle";
-  completedLabel.append(completedInput, document.createTextNode("Completada"));
+  const categoryPicker = makeCategoryPicker(evt ? evt.category || "" : "", state.categories);
 
   const extra = document.createElement("div");
   extra.className = "cal-form__extra";
@@ -1730,11 +1740,18 @@ function openTaskForm(task = null, defaults = {}) {
   extra.append(
     makeField("Fin", endDateInput),
     makeField("Descripción", descriptionInput),
-    makeFieldBlock("Categoría", categoryPicker.node),
-    completedLabel
+    makeField("Ubicación", locationInput),
+    makeField("Enlace", linkInput),
+    makeFieldBlock("Categoría", categoryPicker.node)
   );
 
-  const colorPicker = makeColorPicker(task ? task.color : "");
+  const repeatSelect = document.createElement("select");
+  for (const [value, label] of REPEAT_OPTIONS) {
+    repeatSelect.add(new Option(label, value));
+  }
+  repeatSelect.value = (evt && evt.repeat) || "none";
+
+  const colorPicker = makeColorPicker(evt ? evt.color : "");
 
   const status = document.createElement("p");
   status.className = "status cal-form__status";
@@ -1744,7 +1761,7 @@ function openTaskForm(task = null, defaults = {}) {
   const actions = document.createElement("div");
   actions.className = "form__actions";
   const submit = makeButton(
-    isEdit ? "Guardar cambios" : "Crear tarea",
+    isEdit ? "Guardar cambios" : "Crear evento",
     "btn btn--primary"
   );
   submit.type = "submit";
@@ -1776,6 +1793,7 @@ function openTaskForm(task = null, defaults = {}) {
     makeField("Inicio", startDateInput),
     allDayLabel,
     timeRow,
+    makeField("Repetir", repeatSelect),
     makeFieldBlock("Color", colorPicker.node),
     extra,
     status,
@@ -1795,8 +1813,8 @@ function openTaskForm(task = null, defaults = {}) {
     submit.disabled = true;
     setInlineStatus(status, isEdit ? "Guardando…" : "Creando…");
     try {
-      const payload = buildTaskPayload({
-        id: task ? task.id : null,
+      const payload = buildEventPayload({
+        id: evt ? evt.id : null,
         title,
         description: descriptionInput.value.trim(),
         category: categoryPicker.getValue(),
@@ -1806,16 +1824,18 @@ function openTaskForm(task = null, defaults = {}) {
         startTime: startTimeInput.value,
         endTime: endTimeInput.value,
         color: colorPicker.getValue(),
-        completed: isEdit ? completedInput.checked : false,
+        location: locationInput.value.trim(),
+        link: linkInput.value.trim(),
+        repeat: repeatSelect.value,
       });
       if (isEdit) {
-        await updateTask(payload);
+        await updateEvent(payload);
       } else {
-        await createTask(payload);
+        await createEvent(payload);
       }
       closePopover();
       await loadCalendar();
-      notifyTasksChanged();
+      notifyEventsChanged();
     } catch (error) {
       setInlineStatus(status, error.message, "error");
     } finally {
@@ -1829,72 +1849,55 @@ function openTaskForm(task = null, defaults = {}) {
 
 function openDayList(key) {
   const day = dateFromKey(key);
-  const tasks = shownTasks()
-    .filter((task) => taskOverlapsDay(task, day))
-    .sort(sortDayTasks);
+  const events = shownEvents()
+    .filter((evt) => eventOverlapsDay(evt, day))
+    .sort(sortDayEvents);
   const body = createPopover(formatLongDate(day));
 
   const list = document.createElement("ul");
   list.className = "cal-daylist";
 
-  for (const task of tasks) {
+  for (const evt of events) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.className = "cal-daylist__item";
-    if (task.completed) button.classList.add("cal-daylist__item--done");
+    if (evt.completed) button.classList.add("cal-daylist__item--done");
 
     const dot = document.createElement("span");
     dot.className = "cal-daylist__dot";
-    if (task.color) dot.dataset.color = task.color;
+    if (evt.color) dot.dataset.color = evt.color;
 
     const time = document.createElement("span");
     time.className = "cal-daylist__time";
-    time.textContent = taskTimeLabel(task, day);
+    time.textContent = eventTimeLabel(evt, day);
 
     const title = document.createElement("span");
     title.className = "cal-daylist__title";
-    title.textContent = task.title;
+    title.textContent = evt.title;
 
     button.append(dot, time, title);
-    button.addEventListener("click", () => openTaskDetails(task));
+    button.addEventListener("click", () => openEventDetails(evt));
     item.appendChild(button);
     list.appendChild(item);
   }
 
-  if (tasks.length === 0) {
+  if (events.length === 0) {
     const empty = document.createElement("p");
     empty.className = "cal-popover__empty";
-    empty.textContent = "No hay tareas este día.";
+    empty.textContent = "No hay eventos este día.";
     body.appendChild(empty);
   } else {
     body.appendChild(list);
   }
 
-  const add = makeButton("Nueva tarea", "btn btn--primary btn--sm", () =>
-    openTaskForm(null, { date: day })
+  const add = makeButton("Nuevo evento", "btn btn--primary btn--sm", () =>
+    openEventForm(null, { date: day })
   );
   body.appendChild(add);
 }
 
-async function toggleTaskCompleted(task) {
-  try {
-    const updated = await setTaskCompleted(task.id, !task.completed);
-    Object.assign(task, updated);
-    if (updated.completed) {
-      sound.complete();
-    } else {
-      sound.save();
-    }
-    closePopover();
-    await loadCalendar();
-    notifyTasksChanged();
-  } catch (error) {
-    setStatus(error.message, "error");
-  }
-}
-
-function confirmDeleteTask(task, actions) {
+function confirmDeleteEvent(evt, actions) {
   actions.innerHTML = "";
   const ask = document.createElement("span");
   ask.className = "confirm__ask";
@@ -1903,63 +1906,73 @@ function confirmDeleteTask(task, actions) {
   yes.addEventListener("click", async () => {
     yes.disabled = true;
     try {
-      await deleteTask(task.id);
+      await deleteEvent(evt.id);
       closePopover();
       await loadCalendar();
-      notifyTasksChanged();
+      notifyEventsChanged();
     } catch (error) {
       setStatus(error.message, "error");
       yes.disabled = false;
     }
   });
   const no = makeButton("Cancelar", "btn btn--ghost btn--sm", () =>
-    openTaskDetails(task)
+    openEventDetails(evt)
   );
   actions.append(ask, yes, no);
 }
 
-function openTaskDetails(task) {
-  const body = createPopover(task.title);
+function openEventDetails(evt) {
+  const body = createPopover(evt.title);
   const meta = document.createElement("p");
   meta.className = "cal-detail__meta";
-  meta.textContent = taskRangeLabel(task);
+  meta.textContent = eventRangeLabel(evt);
   body.appendChild(meta);
 
-  if (task.category) {
+  if (evt.category) {
     const category = document.createElement("span");
-    // The task color tints the category chip instead of being spelled out.
-    category.className = task.color ? "cal-chip cal-chip--color" : "cal-chip";
-    if (task.color) category.dataset.color = task.color;
-    category.textContent = task.category;
+    // The evt color tints the category chip instead of being spelled out.
+    category.className = evt.color ? "cal-chip cal-chip--color" : "cal-chip";
+    if (evt.color) category.dataset.color = evt.color;
+    category.textContent = evt.category;
     body.appendChild(category);
   }
-  if (task.completed) {
+  if (evt.completed) {
     const badge = document.createElement("span");
     badge.className = "cal-chip cal-chip--done";
-    badge.textContent = "Completada";
+    badge.textContent = "Completado";
     body.appendChild(badge);
   }
-  if (task.description) {
+  if (evt.location) {
+    const place = document.createElement("p");
+    place.className = "cal-detail__desc";
+    place.textContent = evt.location;
+    body.appendChild(place);
+  }
+  if (isHttpUrl(evt.link)) {
+    const a = document.createElement("a");
+    a.className = "cal-detail__link";
+    a.href = evt.link;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Abrir enlace";
+    body.appendChild(a);
+  }
+  if (evt.description) {
     const description = document.createElement("p");
     description.className = "cal-detail__desc";
-    description.textContent = task.description;
+    description.textContent = evt.description;
     body.appendChild(description);
   }
 
   const actions = document.createElement("div");
   actions.className = "cal-detail__actions";
-  const complete = makeButton(
-    task.completed ? "Marcar como pendiente" : "Completar",
-    "btn btn--primary btn--sm",
-    () => toggleTaskCompleted(task)
-  );
   const edit = makeButton("Editar", "btn btn--ghost btn--sm", () =>
-    openTaskForm(task)
+    openEventForm(evt)
   );
   const remove = makeButton("Eliminar", "btn btn--danger btn--sm", () =>
-    confirmDeleteTask(task, actions)
+    confirmDeleteEvent(evt, actions)
   );
-  actions.append(complete, edit, remove);
+  actions.append(edit, remove);
   body.appendChild(actions);
 }
 
@@ -2034,7 +2047,7 @@ function handleGlobalKeydown(event) {
   }
   if (key === "c") {
     event.preventDefault();
-    openTaskForm(null, { date: state.cursor });
+    openEventForm(null, { date: state.cursor });
     return;
   }
   if (key === "arrowleft") {
@@ -2105,7 +2118,7 @@ export function refreshCalendar() {
 export function resetCalendar() {
   state.active = false;
   state.requestId += 1;
-  state.tasks = [];
+  state.events = [];
   state.dirty = true;
   state.view = "month";
   state.cursor = startOfDay(new Date());

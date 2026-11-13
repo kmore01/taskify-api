@@ -1,8 +1,8 @@
-// fx.js - Taskify sound and motion effects.
+// fx.js - Planifier sound and motion effects.
 // Web Audio oscillators only (no files, no libraries) + a tiny canvas confetti.
 // All effects respect prefers-reduced-motion and the persisted mute preference.
 
-const MUTE_KEY = "taskify_muted";
+const MUTE_KEY = "planifier_muted";
 
 const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const prefersReducedMotion = () => motionQuery.matches;
@@ -70,7 +70,7 @@ function tone({ type = "sine", from, to = from, delay = 0, dur = 0.12, gain = 0.
 }
 
 export const sound = {
-  // Creating a task: soft upward pop.
+  // Creating a event: soft upward pop.
   create() {
     tone({ type: "triangle", from: 660, to: 990, dur: 0.12, gain: 0.05 });
   },
@@ -78,12 +78,7 @@ export const sound = {
   save() {
     tone({ type: "triangle", from: 520, to: 780, dur: 0.1, gain: 0.045 });
   },
-  // Completing a task: the stamp thunk plus a bright ping.
-  complete() {
-    tone({ type: "square", from: 300, to: 170, dur: 0.09, gain: 0.05 });
-    tone({ type: "triangle", from: 880, to: 1320, delay: 0.05, dur: 0.14, gain: 0.05 });
-  },
-  // Deleting a task: lower and duller, clearly different.
+  // Deleting a event: lower and duller, clearly different.
   remove() {
     tone({ type: "sine", from: 240, to: 90, dur: 0.2, gain: 0.07 });
   },
@@ -196,20 +191,4 @@ export function leave(node) {
     // Safety net if the animation never fires.
     setTimeout(resolve, 400);
   });
-}
-
-// The one memorable moment: the HECHO stamp slams onto the completed card.
-export function complete(node) {
-  sound.complete();
-  if (!node || prefersReducedMotion()) return;
-  const origin = node.querySelector(".timeline__check") || node;
-  const rect = origin.getBoundingClientRect();
-  confetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
-
-  const stamp = document.createElement("span");
-  stamp.className = "stamp";
-  stamp.setAttribute("aria-hidden", "true");
-  stamp.textContent = "Hecho";
-  node.appendChild(stamp);
-  stamp.addEventListener("animationend", () => stamp.remove(), { once: true });
 }

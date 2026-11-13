@@ -1,4 +1,4 @@
-const TOKEN_KEY = "taskify_token";
+const TOKEN_KEY = "planifier_token";
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -52,13 +52,14 @@ export function describeError(detail) {
   return "Ocurrió un error inesperado.";
 }
 
-// `body` can be an object (serialized to JSON), URLSearchParams or FormData.
+// `body` can be an object (serialized to JSON), URLSearchParams, FormData or a
+// string (sent as-is: set its Content-Type in `headers`).
 export async function apiFetch(path, options = {}) {
   const { method = "GET", body, headers = {}, ...rest } = options;
   const finalHeaders = { Accept: "application/json", ...headers };
   let finalBody = body;
 
-  if (body instanceof URLSearchParams || body instanceof FormData) {
+  if (body instanceof URLSearchParams || body instanceof FormData || typeof body === "string") {
     // Let the browser set the correct Content-Type.
     finalBody = body;
   } else if (body !== undefined) {
@@ -80,7 +81,7 @@ export async function apiFetch(path, options = {}) {
     clearSession();
     // A failed login has no token; only expire an existing session.
     if (token) {
-      window.dispatchEvent(new CustomEvent("taskify:unauthorized"));
+      window.dispatchEvent(new CustomEvent("planifier:unauthorized"));
     }
   }
 

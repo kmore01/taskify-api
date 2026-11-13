@@ -1,6 +1,6 @@
-// Category field shared by the list and calendar task forms: a real <select>
+// Category field shared by the list and calendar evt forms: a real <select>
 // with every existing category, plus "Nueva categoría…" to type a new one.
-// (A <datalist> only suggests matches for the current text, so editing a task
+// (A <datalist> only suggests matches for the current text, so editing a evt
 // that already had a category hid every other option.)
 
 const NEW = "__new__";

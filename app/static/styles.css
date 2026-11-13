@@ -1,4 +1,4 @@
-/* styles.css - Taskify
+/* styles.css - Planifier
    Clean, neutral surface with a single indigo accent. The HECHO stamp is the
    only playful moment; everything else stays quiet and readable. */
 
@@ -314,7 +314,7 @@ svg { display: block; }
 .form { display: grid; gap: var(--space-4); }
 .form__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
-.form--task {
+.form--event {
   grid-template-columns: 1fr;
   margin-bottom: var(--space-6);
   padding: clamp(1rem, 3vw, 1.5rem);
@@ -323,12 +323,12 @@ svg { display: block; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
-.form--task .form__actions { justify-content: flex-end; }
+.form--event .form__actions { justify-content: flex-end; }
 
 @media (min-width: 640px) {
-  .form--task { grid-template-columns: 1fr 1fr; }
-  .form--task .field--wide,
-  .form--task .form__actions { grid-column: 1 / -1; }
+  .form--event { grid-template-columns: 1fr 1fr; }
+  .form--event .field--wide,
+  .form--event .form__actions { grid-column: 1 / -1; }
 }
 
 /* Auth */
@@ -483,7 +483,7 @@ svg { display: block; }
 }
 .search::placeholder { color: var(--text-muted); }
 
-/* Completed section (collapsed by default, like Google Tasks) */
+/* Completed section (collapsed by default, like Google Events) */
 .done { margin-top: var(--space-5, 1.5rem); }
 .done__summary {
   display: inline-flex;
@@ -565,7 +565,7 @@ svg { display: block; }
   color: var(--success);
 }
 
-/* Task list */
+/* Event list */
 .timeline {
   display: grid;
   gap: var(--space-3);
@@ -608,10 +608,9 @@ svg { display: block; }
   border-radius: 0 3px 3px 0;
   background: transparent;
 }
-.timeline__item--overdue::before { background: var(--danger); }
 .timeline__item--done::before { background: var(--success); }
 
-/* Completion control */
+/* Finished indicator (read-only: events complete when they end) */
 .timeline__check {
   grid-column: 1;
   grid-row: 1;
@@ -627,12 +626,10 @@ svg { display: block; }
   color: transparent;
   border: 1.5px solid var(--control-border);
   border-radius: 50%;
-  cursor: pointer;
   transition:
     background-color 0.16s ease,
     border-color 0.16s ease,
-    color 0.16s ease,
-    transform 0.16s ease;
+    color 0.16s ease;
 }
 .timeline__check::after {
   content: "";
@@ -644,20 +641,14 @@ svg { display: block; }
   transform: translateY(-1px) rotate(-45deg);
   transition: opacity 0.16s ease;
 }
-.timeline__check:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-.timeline__check:active { transform: scale(0.92); }
-.timeline__check[aria-pressed="true"] {
+.timeline__item--done .timeline__check {
   background: var(--success);
   border-color: var(--success);
   color: var(--on-success);
-  animation: fx-pop 0.34s ease-out;
 }
-.timeline__check[aria-pressed="true"]::after { opacity: 1; }
+.timeline__item--done .timeline__check::after { opacity: 1; }
 
-/* Task content */
+/* Event content */
 .timeline__title {
   grid-column: 2;
   grid-row: 1;
@@ -709,10 +700,6 @@ svg { display: block; }
   height: 6px;
   border-radius: 50%;
   background: var(--event-border, var(--accent));
-}
-.timeline__item--overdue .badge:not(.badge--category) {
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 /* Row actions */
@@ -1728,7 +1715,7 @@ svg { display: block; }
     margin-top: var(--space-3);
   }
   .appbar__name { max-width: 8rem; }
-  .form--task .form__actions .btn { flex: 1 1 auto; }
+  .form--event .form__actions .btn { flex: 1 1 auto; }
 }
 
 /* Reduced motion: no animation, no transitions, sound defaults off (see fx.js). */
@@ -1742,3 +1729,6 @@ svg { display: block; }
   }
   .fx-confetti { display: none; }
 }
+
+/* Event link */
+.timeline__meta a, .cal-detail__link { color: var(--accent); }
