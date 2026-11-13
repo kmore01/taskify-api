@@ -657,9 +657,9 @@ function renderTimeGrid(days) {
     column.dataset.date = key;
     if (isToday(day)) column.classList.add("cal-time__col--today");
 
-    const events = timedEventsForDay(events, day);
-    layoutTimedEvents(events);
-    for (const entry of events) {
+    const dayEvents = timedEventsForDay(events, day);
+    layoutTimedEvents(dayEvents);
+    for (const entry of dayEvents) {
       column.appendChild(renderTimedEvent(entry, day));
     }
     if (isToday(day)) column.appendChild(renderNowLine());

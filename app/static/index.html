@@ -7,12 +7,12 @@
     <meta
       name="theme-color"
       media="(prefers-color-scheme: light)"
-      content="#f5f6f8"
+      content="#123b3a"
     />
     <meta
       name="theme-color"
       media="(prefers-color-scheme: dark)"
-      content="#0f1218"
+      content="#0c2423"
     />
     <meta
       name="description"
@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&display=swap"
     />
 
     <link rel="stylesheet" href="./styles.css" />
@@ -33,224 +33,188 @@
     <a class="skip-link" href="#main">Saltar al contenido</a>
 
     <section id="view-auth" class="auth" aria-labelledby="auth-title">
-      <div class="auth__grid">
-        <div class="auth__intro">
-          <p class="brand brand--big">
-            <span class="brand__mark" aria-hidden="true">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                focusable="false"
-              >
-                <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M8 3v4M16 3v4M3.5 10h17" />
-              </svg>
-            </span>
-            Planifier
-          </p>
+      <div class="auth__intro">
+        <p class="brand">
+          <span class="brand__mark" aria-hidden="true"
+            ><svg
+              class=""
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M4 6.5h16v3.2a2.3 2.3 0 0 0 0 4.6v3.2H4v-3.2a2.3 2.3 0 0 0 0-4.6Z"
+              />
+              <path d="M9.5 6.5v11" stroke-dasharray="1.6 2.4" /></svg
+          ></span>
+          Planifier
+        </p>
+        <div class="auth__pitch">
           <h1 id="auth-title" class="auth__title">
             Tus eventos, bien planificados.
           </h1>
           <p class="auth__lead">
-            Entra o crea una cuenta para planificar tus eventos.
+            Cada evento es una entrada con su fecha por delante. Cuando termina,
+            se archiva sola.
           </p>
+          <!-- Illustrative sample tickets, not real data. -->
+          <ol class="timeline auth__demo" aria-hidden="true">
+            <li class="timeline__item" data-color="tangerine">
+              <span class="timeline__node"
+                ><span>vie</span><b>14</b><span>nov</span></span
+              >
+              <p class="timeline__title">Cena con Marta</p>
+              <p class="timeline__meta">
+                <span class="badge badge--category" data-color="tangerine"
+                  >Amigos</span
+                >21:00 – 23:00 · Casa Lucio
+              </p>
+            </li>
+            <li class="timeline__item" data-color="peacock">
+              <span class="timeline__node"
+                ><span>mar</span><b>18</b><span>nov</span></span
+              >
+              <p class="timeline__title">Revisión en el dentista</p>
+              <p class="timeline__meta">
+                <span class="badge badge--category" data-color="peacock"
+                  >Salud</span
+                >10:30 – 11:15
+              </p>
+            </li>
+            <li class="timeline__item" data-color="lavender">
+              <span class="timeline__node"
+                ><span>sáb</span><b>29</b><span>nov</span></span
+              >
+              <p class="timeline__title">Entrega del proyecto</p>
+              <p class="timeline__meta">
+                <span class="badge badge--category" data-color="lavender"
+                  >Trabajo</span
+                >Todo el día
+              </p>
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="auth__panel">
+        <div class="tabs" role="tablist" aria-label="Acceso">
+          <button
+            id="tab-login"
+            class="tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="form-login"
+          >
+            Entrar
+          </button>
+          <button
+            id="tab-register"
+            class="tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="form-register"
+            tabindex="-1"
+          >
+            Crear cuenta
+          </button>
         </div>
 
-        <div class="auth__panel">
-          <div class="tabs" role="tablist" aria-label="Acceso">
-            <button
-              id="tab-login"
-              class="tab"
-              type="button"
-              role="tab"
-              aria-selected="true"
-              aria-controls="form-login"
-            >
-              Entrar
-            </button>
-            <button
-              id="tab-register"
-              class="tab"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              aria-controls="form-register"
-              tabindex="-1"
-            >
-              Crear cuenta
-            </button>
-          </div>
+        <form
+          id="form-login"
+          class="form"
+          role="tabpanel"
+          aria-labelledby="tab-login"
+          novalidate
+        >
+          <label class="field">
+            <span class="field__label">Usuario</span>
+            <input name="username" autocomplete="username" required />
+          </label>
+          <label class="field">
+            <span class="field__label">Contraseña</span>
+            <input
+              type="password"
+              name="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <button class="btn btn--primary btn--block" type="submit">
+            Entrar
+          </button>
+        </form>
 
-          <form
-            id="form-login"
-            class="form"
-            role="tabpanel"
-            aria-labelledby="tab-login"
-            novalidate
-          >
-            <label class="field">
-              <span class="field__label">Usuario</span>
-              <input name="username" autocomplete="username" required />
-            </label>
-            <label class="field">
-              <span class="field__label">Contraseña</span>
-              <input
-                type="password"
-                name="password"
-                autocomplete="current-password"
-                required
-              />
-            </label>
-            <div class="form__actions">
-              <button class="btn btn--primary" type="submit">Entrar</button>
-            </div>
-          </form>
+        <form
+          id="form-register"
+          class="form"
+          role="tabpanel"
+          aria-labelledby="tab-register"
+          hidden
+          novalidate
+        >
+          <label class="field">
+            <span class="field__label">Usuario</span>
+            <input
+              name="username"
+              autocomplete="username"
+              required
+              minlength="3"
+            />
+          </label>
+          <label class="field">
+            <span class="field__label">Correo</span>
+            <input type="email" name="email" autocomplete="email" required />
+          </label>
+          <label class="field">
+            <span class="field__label">Contraseña</span>
+            <input
+              type="password"
+              name="password"
+              autocomplete="new-password"
+              required
+              minlength="8"
+            />
+            <span class="field__hint">Mínimo 8 caracteres.</span>
+          </label>
+          <button class="btn btn--primary btn--block" type="submit">
+            Crear cuenta
+          </button>
+        </form>
 
-          <form
-            id="form-register"
-            class="form"
-            role="tabpanel"
-            aria-labelledby="tab-register"
-            hidden
-            novalidate
-          >
-            <label class="field">
-              <span class="field__label">Usuario</span>
-              <input
-                name="username"
-                autocomplete="username"
-                required
-                minlength="3"
-              />
-            </label>
-            <label class="field">
-              <span class="field__label">Correo</span>
-              <input type="email" name="email" autocomplete="email" required />
-            </label>
-            <label class="field">
-              <span class="field__label">Contraseña</span>
-              <input
-                type="password"
-                name="password"
-                autocomplete="new-password"
-                required
-                minlength="8"
-              />
-            </label>
-            <div class="form__actions">
-              <button class="btn btn--primary" type="submit">
-                Crear cuenta
-              </button>
-            </div>
-          </form>
-
-          <p
-            id="auth-status"
-            class="status"
-            role="status"
-            aria-live="polite"
-          ></p>
-        </div>
+        <p id="auth-status" class="status" role="status" aria-live="polite"></p>
       </div>
     </section>
 
-    <div id="view-app" hidden>
-      <header class="appbar">
-        <div class="appbar__inner">
-          <span class="brand">
-            <span class="brand__mark" aria-hidden="true">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                focusable="false"
-              >
-                <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M8 3v4M16 3v4M3.5 10h17" />
-              </svg>
-            </span>
-            Planifier
-          </span>
-          <div class="appbar__user">
-            <button
-              id="btn-notify"
-              class="btn btn--ghost btn--sm btn--icon"
-              type="button"
-              aria-pressed="false"
-              aria-label="Activar avisos"
-              title="Activar avisos"
+    <div id="view-app" class="shell" hidden>
+      <header class="rail">
+        <span class="brand">
+          <span class="brand__mark" aria-hidden="true"
+            ><svg
+              class=""
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
             >
-              <svg
-                class="icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-              </svg>
-            </button>
-            <button
-              id="btn-mute"
-              class="btn btn--ghost btn--sm btn--icon"
-              type="button"
-              aria-pressed="false"
-              aria-label="Silenciar"
-            >
-              <svg
-                class="icon icon--sound"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-                <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-              </svg>
-              <svg
-                class="icon icon--muted"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                <path d="m16 9 5 6" />
-                <path d="m21 9-5 6" />
-              </svg>
-            </button>
-            <span id="current-user" class="appbar__name"></span>
-            <button
-              id="btn-logout"
-              class="btn btn--ghost btn--sm"
-              type="button"
-            >
-              Salir
-            </button>
-          </div>
-        </div>
-      </header>
+              <path
+                d="M4 6.5h16v3.2a2.3 2.3 0 0 0 0 4.6v3.2H4v-3.2a2.3 2.3 0 0 0 0-4.6Z"
+              />
+              <path d="M9.5 6.5v11" stroke-dasharray="1.6 2.4" /></svg
+          ></span>
+          Planifier
+        </span>
 
-      <main id="main" class="content">
         <div
           class="viewtabs"
           role="tablist"
@@ -258,27 +222,145 @@
         >
           <button
             id="tab-view-events"
-            class="tab"
+            class="rail__tab"
             type="button"
             role="tab"
             aria-selected="true"
             aria-controls="view-events"
           >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M8 6h12M8 12h12M8 18h12" />
+              <path d="M4 6h.01M4 12h.01M4 18h.01" />
+            </svg>
             Eventos
           </button>
           <button
             id="tab-view-calendar"
-            class="tab"
+            class="rail__tab"
             type="button"
             role="tab"
             aria-selected="false"
             aria-controls="view-calendar"
             tabindex="-1"
           >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+              <path d="M8 3v4M16 3v4M3.5 10h17" />
+            </svg>
             Calendario
           </button>
         </div>
 
+        <div class="rail__user">
+          <span id="current-user" class="rail__name"></span>
+          <button
+            id="btn-notify"
+            class="btn btn--rail btn--icon"
+            type="button"
+            aria-pressed="false"
+            aria-label="Activar avisos"
+            title="Activar avisos"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+          </button>
+          <button
+            id="btn-mute"
+            class="btn btn--rail btn--icon"
+            type="button"
+            aria-pressed="false"
+            aria-label="Silenciar"
+          >
+            <svg
+              class="icon icon--sound"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+              <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+              <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+            </svg>
+            <svg
+              class="icon icon--muted"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+              <path d="m16 9 5 6" />
+              <path d="m21 9-5 6" />
+            </svg>
+          </button>
+          <button
+            id="btn-logout"
+            class="btn btn--rail btn--icon"
+            type="button"
+            aria-label="Salir"
+            title="Salir"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M9 4H5v16h4" />
+              <path d="M14 8l4 4-4 4" />
+              <path d="M18 12H9" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main id="main" class="content">
         <section
           id="view-events"
           class="view"
@@ -287,88 +369,78 @@
         >
           <div class="content__head">
             <h1 class="content__title">Eventos</h1>
-            <div class="content__tools">
-              <input
-                id="event-search"
-                class="sort-select search"
-                type="search"
-                placeholder="Buscar"
-                aria-label="Buscar eventos"
-                autocomplete="off"
-              />
-              <details id="list-cats-menu" class="cal-cats-menu" hidden>
-                <summary class="btn btn--sm cal-cats-menu__button">
-                  Categorías
-                  <span
-                    id="list-cats-count"
-                    class="cal-cats-menu__count"
-                  ></span>
-                </summary>
-                <div id="list-categories" class="cal-cats"></div>
-              </details>
-              <label class="sort">
-                <span class="sort__label">Orden</span>
-                <span class="select">
-                  <select id="sort-by" class="sort-select">
-                    <option value="end" selected>Fin</option>
-                    <option value="title">Título</option>
-                  </select>
-                </span>
-              </label>
-              <button id="btn-export" class="btn btn--ghost" type="button">
-                Exportar
-              </button>
+            <button
+              id="btn-new"
+              class="btn btn--primary"
+              type="button"
+              aria-expanded="false"
+              aria-controls="event-form"
+            >
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Nuevo evento
+            </button>
+          </div>
+
+          <div class="content__tools">
+            <input
+              id="event-search"
+              class="sort-select search"
+              type="search"
+              placeholder="Buscar (/)"
+              aria-label="Buscar eventos"
+              autocomplete="off"
+            />
+            <details id="list-cats-menu" class="cal-cats-menu" hidden>
+              <summary class="btn cal-cats-menu__button">
+                Categorías
+                <span id="list-cats-count" class="cal-cats-menu__count"></span>
+              </summary>
+              <div id="list-categories" class="cal-cats"></div>
+            </details>
+            <label class="sort">
+              <span class="sort__label">Orden</span>
+              <span class="select">
+                <select id="sort-by" class="sort-select">
+                  <option value="end" selected>Fin</option>
+                  <option value="title">Título</option>
+                </select>
+              </span>
+            </label>
+            <span class="content__ics">
               <button id="btn-import" class="btn btn--ghost" type="button">
                 Importar
               </button>
-              <input
-                id="import-file"
-                type="file"
-                accept=".ics,text/calendar"
-                hidden
-              />
-              <button
-                id="btn-new"
-                class="btn btn--primary"
-                type="button"
-                aria-expanded="false"
-                aria-controls="event-form"
-              >
-                <svg
-                  class="icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                  focusable="false"
-                >
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                Nuevo evento
+              <button id="btn-export" class="btn btn--ghost" type="button">
+                Exportar
               </button>
-            </div>
+            </span>
+            <input
+              id="import-file"
+              type="file"
+              accept=".ics,text/calendar"
+              hidden
+            />
           </div>
 
           <form id="event-form" class="form form--event" hidden novalidate>
             <input type="hidden" name="id" />
 
-            <label class="field">
+            <label class="field field--wide">
               <span class="field__label">Título</span>
               <input name="title" required maxlength="120" />
             </label>
-
-            <label class="field field--wide">
-              <span class="field__label">Descripción (opcional)</span>
-              <textarea name="description" rows="3"></textarea>
-            </label>
-
-            <div class="field">
-              <span class="field__label">Categoría</span>
-              <div id="event-category"></div>
-            </div>
 
             <label class="field">
               <span class="field__label">Inicio</span>
@@ -380,6 +452,24 @@
               <input type="datetime-local" name="end" required />
             </label>
 
+            <div class="field">
+              <span class="field__label">Categoría</span>
+              <div id="event-category"></div>
+            </div>
+
+            <label class="field">
+              <span class="field__label">Repetir</span>
+              <span class="select">
+                <select name="repeat" class="sort-select">
+                  <option value="none" selected>No se repite</option>
+                  <option value="daily">Todos los días</option>
+                  <option value="weekly">Todas las semanas</option>
+                  <option value="monthly">Todos los meses</option>
+                  <option value="yearly">Todos los años</option>
+                </select>
+              </span>
+            </label>
+
             <label class="field">
               <span class="field__label">Ubicación (opcional)</span>
               <input name="location" maxlength="120" />
@@ -387,18 +477,17 @@
 
             <label class="field">
               <span class="field__label">Enlace (opcional)</span>
-              <input type="url" name="link" maxlength="500" placeholder="https://" />
+              <input
+                type="url"
+                name="link"
+                maxlength="500"
+                placeholder="https://"
+              />
             </label>
 
-            <label class="field">
-              <span class="field__label">Repetir</span>
-              <select name="repeat">
-                <option value="none" selected>No se repite</option>
-                <option value="daily">Todos los días</option>
-                <option value="weekly">Todas las semanas</option>
-                <option value="monthly">Todos los meses</option>
-                <option value="yearly">Todos los años</option>
-              </select>
+            <label class="field field--wide">
+              <span class="field__label">Descripción (opcional)</span>
+              <textarea name="description" rows="3"></textarea>
             </label>
 
             <div class="form__actions">
@@ -421,7 +510,7 @@
           <ol
             id="event-list"
             class="timeline"
-            aria-label="Eventos por fecha de fin"
+            aria-label="Eventos pendientes"
           ></ol>
 
           <details id="done-section" class="done" hidden>
@@ -447,12 +536,12 @@
               aria-hidden="true"
               focusable="false"
             >
-              <circle cx="12" cy="12" r="9" />
-              <path d="m8.5 12 2.5 2.5 4.5-5" />
+              <path
+                d="M4 6.5h16v3.2a2.3 2.3 0 0 0 0 4.6v3.2H4v-3.2a2.3 2.3 0 0 0 0-4.6Z"
+              />
+              <path d="M9.5 6.5v11" stroke-dasharray="1.6 2.4" />
             </svg>
-            <p id="empty-title" class="empty__title">
-              Aquí no hay eventos.
-            </p>
+            <p id="empty-title" class="empty__title">Aquí no hay eventos.</p>
             <p id="empty-text" class="empty__text">
               Crea tu primer evento (atajo: C).
             </p>

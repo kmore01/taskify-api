@@ -5,7 +5,7 @@ import {
   refreshCalendar,
   resetCalendar,
 } from "./calendar.js";
-import { fromLocalInput, parseDate, toLocalInput } from "./dates.js";
+import { dayKey, formatTime, fromLocalInput, parseDate, toLocalInput } from "./dates.js";
 import {
   listEventsRange,
   isHttpUrl,
@@ -60,6 +60,12 @@ function formatDate(iso, allDay = false) {
     "es-ES",
     allDay ? { dateStyle: "medium" } : { dateStyle: "medium", timeStyle: "short" }
   );
+}
+
+// Ticket meta: the stub already shows the start day, so this says how long it runs.
+function whenText(evt) {
+  if (dayKey(evt.start) !== dayKey(evt.end)) return `Hasta el ${formatDate(evt.end, evt.all_day)}`;
+  return evt.all_day ? "Todo el día" : `${formatTime(evt.start)} – ${formatTime(evt.end)}`;
 }
 
 // Deadline proximity: "soon" (<= 48 h) or "later". Past events are already completed.
@@ -228,17 +234,22 @@ function renderItem(evt) {
   const item = document.createElement("li");
   item.className = `timeline__item timeline__item--${proximity}`;
   item.dataset.id = evt.id;
+  item.dataset.color = evt.color || "";
   const isDone = Boolean(evt.completed);
   if (isDone) item.classList.add("timeline__item--done");
   if (state.pendingDelete === evt.id) item.classList.add("timeline__item--confirming");
 
-  const check = document.createElement("span");
-  check.className = "timeline__check";
-  check.setAttribute("aria-hidden", "true");
-
-  const node = document.createElement("span");
+  // Ticket stub: weekday, day numeral and month of the start date.
+  const start = parseDate(evt.start);
+  const node = document.createElement("time");
   node.className = "timeline__node";
-  node.setAttribute("aria-hidden", "true");
+  node.dateTime = dayKey(evt.start);
+  for (const [tag, part] of [["span", "weekday"], ["b", "day"], ["span", "month"]]) {
+    const piece = document.createElement(tag);
+    const style = part === "day" ? "numeric" : "short";
+    piece.textContent = start.toLocaleDateString("es-ES", { [part]: style }).replace(".", "");
+    node.append(piece, " ");
+  }
 
   const title = document.createElement("h2");
   title.className = "timeline__title";
@@ -267,13 +278,13 @@ function renderItem(evt) {
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = "Enlace";
-    meta.append(a, document.createTextNode(" · "));
+    meta.append(a);
   }
   meta.append(
-    document.createTextNode(`Termina el ${formatDate(evt.end, evt.all_day)}`)
+    document.createTextNode(whenText(evt))
   );
 
-  item.append(check, node, title);
+  item.append(node, title);
   if (evt.description) {
     const desc = document.createElement("p");
     desc.className = "timeline__desc";
@@ -566,7 +577,8 @@ function selectView(name) {
 }
 
 function onViewTabsKeydown(event) {
-  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  // The rail is vertical on desktop and horizontal on phones.
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
   event.preventDefault();
   const next = state.view === "events" ? "calendar" : "events";
   selectView(next);
