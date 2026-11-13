@@ -125,6 +125,13 @@ async def list_tasks(
     }
 
 
+# Declared before "/{id}" so "categories" is not parsed as a task id.
+@router.get("/categories", response_model=list[str])
+async def list_categories(user=Depends(get_current_user)):
+    values = await db.tasks.distinct("category", {"owner": user["_id"]})
+    return sorted({v for v in values if v}, key=str.casefold)
+
+
 @router.get("/{id}", response_model=Task)
 async def get_task(id: str, user=Depends(get_current_user)):
     obj_id = parse_object_id(id)

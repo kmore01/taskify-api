@@ -76,3 +76,8 @@ export async function deleteTask(id) {
   sound.remove();
   return result;
 }
+
+// Distinct categories across all of the user's tasks (not just a date range).
+export async function listCategories() {
+  return apiFetch("/tasks/categories");
+}

@@ -353,6 +353,17 @@
             </label>
 
             <label class="field">
+              <span class="field__label">Categoría (opcional)</span>
+              <input
+                name="category"
+                maxlength="40"
+                list="category-options"
+                autocomplete="off"
+              />
+            </label>
+            <datalist id="category-options"></datalist>
+
+            <label class="field">
               <span class="field__label">Fecha</span>
               <input type="datetime-local" name="date" required />
             </label>
@@ -496,6 +507,14 @@
                 </button>
                 <h2 id="cal-title" class="cal__title" aria-live="polite"></h2>
               </div>
+              <div class="cal__tools">
+              <details id="cal-cats-menu" class="cal-cats-menu">
+                <summary class="btn btn--sm cal-cats-menu__button">
+                  Categorías
+                  <span id="cal-cats-count" class="cal-cats-menu__count"></span>
+                </summary>
+                <div id="cal-categories" class="cal-cats"></div>
+              </details>
               <label class="select">
                 <select
                   id="cal-view"
@@ -508,6 +527,7 @@
                   <option value="agenda">Agenda</option>
                 </select>
               </label>
+              </div>
             </div>
 
             <p

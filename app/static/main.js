@@ -48,7 +48,7 @@ function deadlineState(iso) {
   return "later";
 }
 
-const DEADLINE_LABEL = { overdue: "Vencida", soon: "Próxima", later: "" };
+const DEADLINE_LABEL = { overdue: "Vencida", soon: "", later: "" };
 
 // Pending tasks first; then by deadline or by title (accent-aware).
 function sortTasks(tasks, sortBy = "deadline") {
@@ -208,6 +208,8 @@ function renderCategoryFilter() {
   select.replaceChildren(new Option("Todas las categorías", ""));
   for (const name of categories) select.add(new Option(name, name));
   select.value = state.category;
+  // Shared autocomplete for both task forms (list and calendar).
+  el("category-options").replaceChildren(...categories.map((name) => new Option(name)));
   select.parentElement.hidden = categories.length === 0;
 }
 
@@ -334,7 +336,8 @@ function openForm(task = null) {
   if (task) {
     field(form, "id").value = task.id;
     field(form, "title").value = task.title;
-    field(form, "description").value = task.description;
+    field(form, "description").value = task.description || "";
+    field(form, "category").value = task.category || "";
     field(form, "date").value = toLocalInput(task.date);
     field(form, "deadline").value = toLocalInput(task.deadline);
     submit.textContent = "Actualizar";
@@ -378,6 +381,7 @@ async function submitTask(event) {
     id: state.editingId || null,
     title: field(form, "title").value.trim(),
     description: field(form, "description").value.trim(),
+    category: field(form, "category").value.trim() || null,
     date: fromLocalInput(field(form, "date").value),
     deadline: fromLocalInput(field(form, "deadline").value),
   };

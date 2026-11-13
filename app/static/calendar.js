@@ -21,6 +21,7 @@ import { sound } from "./fx.js";
 import {
   createTask,
   deleteTask,
+  listCategories,
   listTasksRange,
   setTaskCompleted,
   updateTask,
@@ -53,6 +54,8 @@ const COLORS = [
   { key: "graphite", label: "Grafito" },
 ];
 
+const HIDDEN_KEY = "taskify_cal_hidden";
+
 const state = {
   active: false,
   initialized: false,
@@ -65,9 +68,92 @@ const state = {
   timeScroll: null,
   suppressClick: false,
   miniKey: "",
+  categories: [],
+  hiddenCategories: loadHiddenCategories(),
 };
 
 const el = (id) => document.getElementById(id);
+
+// Category visibility is a per-browser view preference, like toggling
+// calendars on and off. "" stands for tasks without a category.
+
+function loadHiddenCategories() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HIDDEN_KEY));
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenCategories() {
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...state.hiddenCategories]));
+  } catch {
+    /* storage unavailable: the choice lasts this page only */
+  }
+}
+
+function shownTasks() {
+  return state.tasks.filter((task) => !state.hiddenCategories.has(task.category || ""));
+}
+
+async function loadCategories() {
+  try {
+    state.categories = await listCategories();
+  } catch {
+    state.categories = [...new Set(state.tasks.map((t) => t.category).filter(Boolean))];
+  }
+  renderCategoryFilter();
+}
+
+// "visible/total" on the menu button while any category is hidden.
+function renderCategoryCount() {
+  const keys = [...state.categories, ""];
+  const shown = keys.filter((key) => !state.hiddenCategories.has(key)).length;
+  el("cal-cats-count").textContent = shown < keys.length ? `${shown}/${keys.length}` : "";
+}
+
+function renderCategoryFilter() {
+  const container = el("cal-categories");
+  if (!container) return;
+  const entries = [
+    ...state.categories.map((name) => ({ key: name, label: name })),
+    { key: "", label: "Sin categoría" },
+  ];
+
+  const title = document.createElement("p");
+  title.className = "cal-cats__title";
+  title.id = "cal-cats-title";
+  title.textContent = "Categorías";
+
+  const list = document.createElement("ul");
+  list.className = "cal-cats__list";
+  list.setAttribute("aria-labelledby", "cal-cats-title");
+  for (const entry of entries) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = !state.hiddenCategories.has(entry.key);
+    input.addEventListener("change", () => {
+      if (input.checked) state.hiddenCategories.delete(entry.key);
+      else state.hiddenCategories.add(entry.key);
+      saveHiddenCategories();
+      renderCategoryCount();
+      renderCalendar();
+    });
+    const label = document.createElement("label");
+    label.className = "cal-cats__item";
+    const text = document.createElement("span");
+    text.textContent = entry.label;
+    if (!entry.key) text.className = "cal-cats__none";
+    label.append(input, text);
+    const item = document.createElement("li");
+    item.append(label);
+    list.append(item);
+  }
+  container.replaceChildren(title, list);
+  renderCategoryCount();
+}
 
 function setStatus(message = "", kind = "info") {
   setInlineStatus(el("cal-status"), message, kind);
@@ -122,6 +208,7 @@ async function loadCalendar() {
     if (requestId !== state.requestId) return;
     state.tasks = tasks;
     setStatus("");
+    loadCategories();
   } catch (error) {
     if (requestId !== state.requestId) return;
     state.tasks = [];
@@ -198,7 +285,7 @@ function renderWeek(weekStart, month) {
   overlay.className = "cal-week__events";
   const hidden = new Map();
 
-  for (const segment of layoutSegments(state.tasks, weekStart, 7)) {
+  for (const segment of layoutSegments(shownTasks(), weekStart, 7)) {
     if (segment.lane >= state.maxLanes) {
       for (let col = segment.startCol; col <= segment.endCol; col += 1) {
         const key = dayKey(days[col]);
@@ -414,7 +501,7 @@ function renderTimeHeader(days) {
 function renderAllDayRow(days) {
   const rangeStart = days[0];
   const dayCount = days.length;
-  const tasks = state.tasks.filter((task) => task.all_day);
+  const tasks = shownTasks().filter((task) => task.all_day);
   const segments = layoutSegments(tasks, rangeStart, dayCount);
   const maxLane = segments.reduce(
     (max, segment) => Math.max(max, segment.lane),
@@ -551,7 +638,7 @@ function renderTimeGrid(days) {
 
   const grid = document.createElement("div");
   grid.className = "cal-time__grid";
-  const tasks = state.tasks.filter((task) => !task.all_day);
+  const tasks = shownTasks().filter((task) => !task.all_day);
 
   for (const day of days) {
     const key = dayKey(day);
@@ -1079,7 +1166,7 @@ function renderAgenda() {
   const rangeEnd = endOfMonth(state.cursor);
   const entries = [];
 
-  for (const task of state.tasks) {
+  for (const task of shownTasks()) {
     const { start, end } = taskWindow(task);
     if (end < rangeStart || start > rangeEnd) continue;
     entries.push({
@@ -1645,6 +1732,7 @@ function openTaskForm(task = null, defaults = {}) {
   const categoryInput = makeInput("text", task && task.category ? task.category : "");
   categoryInput.maxLength = 40;
   categoryInput.placeholder = "Categoría (opcional)";
+  categoryInput.setAttribute("list", "category-options");
 
   const completedInput = makeInput("checkbox");
   completedInput.checked = Boolean(task && task.completed);
@@ -1757,7 +1845,7 @@ function openTaskForm(task = null, defaults = {}) {
 
 function openDayList(key) {
   const day = dateFromKey(key);
-  const tasks = state.tasks
+  const tasks = shownTasks()
     .filter((task) => taskOverlapsDay(task, day))
     .sort(sortDayTasks);
   const body = createPopover(formatLongDate(day));
@@ -1853,17 +1941,11 @@ function openTaskDetails(task) {
   meta.textContent = taskRangeLabel(task);
   body.appendChild(meta);
 
-  if (task.color) {
-    const color = COLORS.find((entry) => entry.key === task.color);
-    const chip = document.createElement("span");
-    chip.className = "cal-chip cal-chip--color";
-    chip.dataset.color = task.color;
-    chip.textContent = color ? color.label : task.color;
-    body.appendChild(chip);
-  }
   if (task.category) {
     const category = document.createElement("span");
-    category.className = "cal-chip";
+    // The task color tints the category chip instead of being spelled out.
+    category.className = task.color ? "cal-chip cal-chip--color" : "cal-chip";
+    if (task.color) category.dataset.color = task.color;
     category.textContent = task.category;
     body.appendChild(category);
   }
@@ -2003,6 +2085,17 @@ export function initCalendar() {
     setView(event.target.value);
   });
   el("cal-sidebar-toggle").addEventListener("click", toggleSidebar);
+  renderCategoryFilter();
+  // Close the categories menu on outside click or Escape, like a dropdown.
+  document.addEventListener("pointerdown", (event) => {
+    const menu = el("cal-cats-menu");
+    if (menu.open && !menu.contains(event.target)) menu.open = false;
+  });
+  el("cal-cats-menu").addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.currentTarget.open = false;
+    event.currentTarget.querySelector("summary").focus();
+  });
 
   document.addEventListener("keydown", handleGlobalKeydown);
   document.addEventListener("pointerdown", handleOutsidePointer);
@@ -2032,5 +2125,6 @@ export function resetCalendar() {
   state.cursor = startOfDay(new Date());
   state.timeScroll = null;
   state.miniKey = "";
+  state.categories = [];
   closePopover();
 }

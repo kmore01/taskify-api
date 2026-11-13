@@ -25,6 +25,16 @@ app.include_router(auth.router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
+# No build step means no hashed filenames, so make browsers revalidate static
+# files (cheap 304s) instead of running a stale ES module after an edit.
+@app.middleware("http")
+async def revalidate_static(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/")
 async def root():
     return "Hello FastAPI!"

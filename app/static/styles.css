@@ -604,7 +604,6 @@ svg { display: block; }
   background: transparent;
 }
 .timeline__item--overdue::before { background: var(--danger); }
-.timeline__item--soon::before { background: var(--warning); }
 .timeline__item--done::before { background: var(--success); }
 
 /* Completion control */
@@ -705,10 +704,6 @@ svg { display: block; }
   height: 6px;
   border-radius: 50%;
   background: var(--event-border, var(--accent));
-}
-.timeline__item--soon .badge:not(.badge--category) {
-  background: var(--warning-soft);
-  color: var(--warning);
 }
 .timeline__item--overdue .badge:not(.badge--category) {
   background: var(--danger-soft);
@@ -865,6 +860,49 @@ svg { display: block; }
 }
 .cal--sidebar-hidden .cal__body { grid-template-columns: minmax(0, 1fr); }
 .cal--sidebar-hidden .cal__sidebar { display: none; }
+
+/* Category visibility toggles */
+.cal__tools { display: flex; align-items: center; gap: var(--space-2); }
+.cal-cats-menu { position: relative; }
+.cal-cats-menu__button { list-style: none; }
+.cal-cats-menu__button::-webkit-details-marker { display: none; }
+.cal-cats-menu__count { color: var(--text-muted); font-weight: 500; }
+.cal-cats {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 30;
+  min-width: 14rem;
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.cal-cats__title {
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cal-cats__list { display: grid; gap: 0.15rem; margin: 0; padding: 0; list-style: none; }
+.cal-cats__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.cal-cats__item:hover { background: var(--surface-muted); }
+.cal-cats__item input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); flex: none; }
+.cal-cats__none { color: var(--text-muted); font-style: italic; }
 
 /* Mini calendar */
 .cal-mini {
